@@ -6,7 +6,7 @@ import glob
 
 from insightface.app import FaceAnalysis
 
-MAX_EMBEDDING_NUM = 10
+MAX_EMBEDDING_NUM = 15
 
 class FaceRecognizer(FaceAnalysis):
     def __init__(self, 
@@ -20,19 +20,21 @@ class FaceRecognizer(FaceAnalysis):
 
     def generate_embeddings(self, data_path):
         embeddings = []
-        for file in glob.glob(f'{data_path}\*.png'):
+        files = glob.glob(f'{data_path}\*.png')
+        
+        for file in files:
             img = cv2.imread(file)
             faces = self.get(img)
 
             if len(faces) != 1:
-                print(f'dataset warning:In {os.path.basename(data_path)}\'s dataset: {file} has {len(faces)} faces!')
+                print(f'FaceRecognizer::generate_embeddings: In {os.path.basename(data_path)}\'s dataset: {file} has {len(faces)} faces!')
                 continue
 
             face = faces[0]
             embeddings.append(face.normed_embedding)
             
         if len(embeddings) == 0:
-            print(f'dataset error:No any face detected in {os.path.basename(data_path)}\'s dataset!')
+            print(f'FaceRecognizer::generate_embeddings: No any face detected in {os.path.basename(data_path)}\'s dataset!')
             return None
         if len(embeddings) > MAX_EMBEDDING_NUM:
             embeddings = random.choices(embeddings, k = MAX_EMBEDDING_NUM)
@@ -41,36 +43,40 @@ class FaceRecognizer(FaceAnalysis):
 
     def get_faces(self, image):
         faces = self.get(image)
-        if len(faces) == 0:
-            return None
         return faces
 
-    def get_name(self, face, fdm, threshold=0.5):
+    def get_name(self, image, face, fdm, create_new_face=False, face_quality = 0.7, search_threshold=0.3):
         '''
         input:
         image: mat_like image
+        face: Face to get name
         threshold: float
         fdm: FaceDatabaseManager
 
         output:
-        faces: list[Face] all faces in the image
-        pred_names: list[str] predited name for each face
+        pred_name_score: [name, score] of predited result
+        None if face is not known and creating_new_face is set to false
         '''
-        pred_name_score = self._search_average(face.normed_embedding, fdm.get_name_embeddings_dict(), threshold)
-        if pred_name_score == None:
+        if face.det_score < face_quality: # make sure the quality of face is good
+            return None
+        pred_name_score = self._search_average(face.normed_embedding, fdm.get_name_embeddings_dict(), search_threshold)
+        if pred_name_score == None and create_new_face:
+            face_image = self._crop_face_image(image, face)
+            if self.get(face_image) == []:
+                return None
+            
             print('FaceRecognizer:get_name: No corresponding name found')
-            print('creating new person...')
-            fdm.add_new_person()
-            return
-        for i in range(len(pred_results)):
-            if pred_results[i] == None:
-                face_image = self._crop_face_image(image, faces[i])
-                cv2.imwrite(f'test_face_crop_output{i}.png', face_image)
-                
-        return pred_results
+            print('FaceRecognizer:get_name: Creating new person...')
+            new_name = fdm.add_new_face(face_image) # add a new face to database and let fdm decide the name
+            print(f'FaceRecognizer:get_name: new person name: {new_name}')
+            return (new_name, 1)
+                  
+        return pred_name_score
     
-    def get_landmarks(self, image):
-        faces = self.get(image)
+    def get_landmark(self, face):
+        if len(face.landmark_2d_106) == 106:
+            return face.landmark_2d_106
+        return None
         ret_lmks = []
         for face in faces:
             lmk = face.landmark_2d_106
@@ -89,14 +95,17 @@ class FaceRecognizer(FaceAnalysis):
         threshold: float
 
         output:
-        name: str
+        name_score: [name, score] of founded result
         None if not found
         '''
         name_scores = []
         for name, embs in name_embedding_dict.items():
             score = np.dot(emb_to_search, embs.T)
             name_scores.append((name, np.average(score)))
-            
+
+        if len(name_scores) == 0:
+            return None
+        
         idx = np.argmax(name_scores, axis=0)[1] # id of max average score
         score = name_scores[idx][1]
         if score > threshold:

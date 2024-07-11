@@ -2,13 +2,22 @@ import numpy as np
 import os
 import shutil
 import glob
+import cv2
 
 from FaceRecognizer import FaceRecognizer
 
 class FaceDatabaseManager:
-    def __init__(self, root, face_recognizer: FaceRecognizer):
+    def __init__(self, root, face_recognizer: FaceRecognizer=None):
         self.database_root = root
         self.face_recognizer = face_recognizer
+        if face_recognizer is not None:
+            self.have_face_recognizer = True
+        else:
+            self.have_face_recognizer = False
+            print('Warning: FaceDatabaseManager don\'t have a FaceRecognizer, some function will be disabled!')
+            
+        if not os.path.exists(self.database_root):
+            os.mkdir(self.database_root)
         self.load_data()
         
     def load_data(self):
@@ -20,6 +29,7 @@ class FaceDatabaseManager:
             embaddings_path = os.path.join(self.database_root, name, 'embeddings.npy')
             if not os.path.exists(embaddings_path):
                 names_without_embeddings.append(name)
+                print(f"Embeddings of {name} does not exist, path:{embaddings_path}")
                 continue
             
             # load embeddings
@@ -28,7 +38,7 @@ class FaceDatabaseManager:
             
         if len(names_without_embeddings) > 0:
             print(f'Names without embeddings: {names_without_embeddings}')
-            print('Please generate them manually')
+            print('Please generate them manually with generate_embeddings()')
    
     def get_name_list(self):
         if len(self.names) == 0:
@@ -39,6 +49,10 @@ class FaceDatabaseManager:
         return self.name_embeddings_dict
     
     def generate_embeddings(self, regenerate_all = False):
+        if not self.have_face_recognizer:
+            print('FaceDatabaseManager::generate_embeddings: FaceRecognizer is not set!')
+            return
+
         self._load_names()
         
         if regenerate_all:
@@ -57,23 +71,24 @@ class FaceDatabaseManager:
                 embaddings_path = os.path.join(folder_path, 'embeddings.npy')
                 np.save(embaddings_path, self.face_recognizer.generate_embeddings(folder_path))
 
-        self.load_data()
-
-    def add_new_face(self, images, name = ''):
+    def add_new_face(self, image, name = ''):
+        if not self.have_face_recognizer:
+            print('FaceDatabaseManager::add_new_face: FaceRecognizer is not set!')
+            return
+        
         if name in self.names:
-            print(f"Name {{name}} already exists in the database")
+            print(f"Name {name} already exists in the database")
             return
         
         if name == '':
             name = self._generate_name() #generate a new name for new face
-            self.names.append(name)
         
         os.makedirs(os.path.join(self.database_root, name), exist_ok=True)
-        for i, img in enumerate(images):
-            id = i
-            while os.path.exists(os.path.join(self.database_root, name, f'{id}.png')):
-                id += 1
-            cv2.imwrite(os.path.join(self.database_root, name, f'{id}.png'), img)
+        
+        id = 0
+        while os.path.exists(os.path.join(self.database_root, name, f'{id}.png')):
+            id += 1
+        cv2.imwrite(os.path.join(self.database_root, name, f'{id}.png'), image)
             
         self.generate_embeddings()
         self.load_data()
@@ -87,16 +102,16 @@ class FaceDatabaseManager:
     
     def rename_face(self, old_name, new_name):
         if old_name == new_name:
-            print(f'new name {{new_name}} is the same as old name {{old_name}}')
+            print(f'new name "{new_name}" is the same as old name "{old_name}"')
             return
 
         self._load_names()
         if old_name not in self.names:
-            print(f'Name {{old_name}} does not exist in the database')
+            print(f'Name "{old_name}" does not exist in the database')
             return
 
         if new_name in self.names:
-            print(f"Group {{old_name}} into {{new_name}}")
+            print(f'Group "{old_name}" into "{new_name}"')
             for file in glob.glob(os.path.join(self.database_root, old_name, '*.png')):
                 new_file_path = os.path.join(self.database_root, new_name, os.path.basename(file))
                 i = 0
@@ -115,7 +130,7 @@ class FaceDatabaseManager:
                 
     def delete_face(self, name):
         if name not in self.names:
-            print(f'Name {{name}} does not exist in the database')
+            print(f'Name "{name}" does not exist in the database')
             return
 
         shutil.rmtree(os.path.join(self.database_root, name))

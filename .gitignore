@@ -1,3 +1,7 @@
 database
 *.png
 *.jpg
+*.mp3
+*.mp4
+*.txt
+test*

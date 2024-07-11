@@ -1,7 +1,8 @@
 import numpy as np
+import os
 
 class FaceAnalyzer:
-    def __init__(self, value_window_size = 50):
+    def __init__(self, value_window_size = 20):
         self.name_open_value_dict = {}
         self.value_window_size = value_window_size
         pass
@@ -11,43 +12,55 @@ class FaceAnalyzer:
         left_lip_dis = np.linalg.norm(face_lmk[54] - face_lmk[66])
         right_lip_dis = np.linalg.norm(face_lmk[60] - face_lmk[62])
         mid_lip_dis = np.linalg.norm(face_lmk[57] - face_lmk[70])
-        return left_lip_dis + right_lip_dis + mid_lip_dis
+        base_ref = np.linalg.norm(face_lmk[66] - face_lmk[70]) + np.linalg.norm(face_lmk[54] - face_lmk[57])
+        
+        return float(100*(left_lip_dis + right_lip_dis + mid_lip_dis) / base_ref)
 
-    def is_talking(self, name, threshold = 0.5):
-        if name not in self.name_open_value_dict:
-            print(f'FaceAnalyzer:Is_talking: Name {{name}} does not recognized')
+    def is_talking(self, name, threshold = 0.3):
+        if name not in self.name_open_value_dict.keys():
+            print(f"FaceAnalyzer:Is_talking: Name \"{name}\" does not exist")
             return False
         
         values = self.name_open_value_dict[name]
+        med = np.median(values)
         
-        for value in values:
-            # TODO : calculate the value of vibration
-            print(value)
-        print()
+        ### visualize in cmd
+        os.system('cls')
+        #for name in self.name_open_value_dict.keys():
+        print(name)
+        for value in self.name_open_value_dict[name]:
+            print(f'{value:04.2f} ', end='')
+            for i in range(int(value)):
+                if i < med:
+                    print('-', end='')
+                else:
+                    print('*', end='')
+            print('', end='\n')
+            
+        cross_zero = 0
+        for i in range(len(values)-1):
+            if (values[i] - med)*(values[i+1] - med) < 0:
+                cross_zero += 1
+                
+        if cross_zero > len(values)*threshold:
+            print('TALKING')
+        else:
+            print('NOT TALKING')
+            
+        return cross_zero > len(values)*threshold
         
-    def update(self, face_lmks, names):
-        if len(face_lmks) == 0:
-            print('FaceRecognizer:Update: No any face lmk passed')
-            return
-        
-        if len(names) == 0:
-            print('FaceRecognizer:Update: No any name passed')
-            return
-        
-        if len(names) != len(face_lmks):
-            print('FaceRecognizer:Update: The number of names is not equal to the number of lmk')
-            return
-
-        for name in names:
-            if name not in self.name_open_value_dict:
-                print(f'FaceAnalyzer:Update: New name {{name}} ')
-                self.name_open_value_dict[name] = []
-        
-        for name, lmk in zip(names, face_lmks):
-            if len(self.name_open_value_dict[name]) > self.value_window_size:
+    def update(self, name_lmks):
+        for name in self.name_open_value_dict.keys():
+            while len(self.name_open_value_dict[name]) >= self.value_window_size:
                 self.name_open_value_dict[name].pop(0) # pop first value
+                
+        for name, lmk in name_lmks:
+            if name not in self.name_open_value_dict:
+                self.name_open_value_dict[name] = []
+                
             self.name_open_value_dict[name].append(self.mouth_open(lmk))
-        
+            
+        names = [x[0] for x in name_lmks]
         for name in self.name_open_value_dict.keys():
             if name not in names:
                 self.name_open_value_dict[name].append(-1) # absent person
