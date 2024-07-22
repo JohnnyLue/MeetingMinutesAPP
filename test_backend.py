@@ -5,6 +5,7 @@ import time
 from FaceDatabaseManager import FaceDatabaseManager
 from FaceRecognizer import FaceRecognizer
 from FaceAnalyzer import FaceAnalyzer
+from VideoManager import VideoManager
 
 FPS = 0
 
@@ -12,6 +13,7 @@ if __name__ == '__main__':
     fr = FaceRecognizer(det_size=(320, 320))
     fdm = FaceDatabaseManager('database', fr)
     fa = FaceAnalyzer()
+    vm = VideoManager()
     fdm.generate_embeddings()
     cap = cv2.VideoCapture(0)
     start_time = time.time()

@@ -5,3 +5,4 @@ database
 *.mp4
 *.txt
 test*
+__pycache__
