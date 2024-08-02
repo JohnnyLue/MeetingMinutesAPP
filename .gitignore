@@ -1,10 +1,9 @@
-database
+database*
 *.png
 *.jpg
 *.mp3
 *.mp4
 *.txt
 *.pyc
-test*
 __pycache__
 .vscode

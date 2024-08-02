@@ -21,25 +21,38 @@ class FaceDatabaseManager:
             os.mkdir(self.database_root)
         self.load_data()
         
-    def load_data(self):
-        names_without_embeddings = []
+    def load_data(self, generate_all = False, retry = True):
+        '''
+        Load data from database, including names and embeddings.
+        if generate_all is True, generate embeddings for all faces in the database.
+        if retry is True, regenerate embeddings for faces that failed to load once.
+        '''
+        unprocessed_names = []
         self.name_embeddings_dict = {}
+        
+        if generate_all:
+            self.generate_database_embeddings()
         
         self._load_names()
         for name in self.names:
             embaddings_path = os.path.join(self.database_root, name, 'embeddings.npy')
             if not os.path.exists(embaddings_path):
-                names_without_embeddings.append(name)
-                print(f"Embeddings of {name} does not exist, path:{embaddings_path}")
+                unprocessed_names.append(name)
                 continue
             
             # load embeddings
-            embaddings = np.load(embaddings_path, allow_pickle=True)
-            self.name_embeddings_dict[name] = embaddings
+            try:
+                embaddings = np.load(embaddings_path, allow_pickle=True)
+            except Exception as e:
+                print(f'FaceDatabaseManager::load_data: Failed to load embeddings for {name}, error: {e}')
+                unprocessed_names.append(name)
+                continue
             
-        if len(names_without_embeddings) > 0:
-            print(f'Names without embeddings: {names_without_embeddings}')
-            self.generate_embeddings()
+            self.name_embeddings_dict[name] = embaddings
+        if len(unprocessed_names) > 0 and retry:
+            print(f'FaceDatabaseManager::load_data: Names need to generate embeddings: {unprocessed_names}')
+            self.generate_database_embeddings(unprocessed_names)
+            self.load_data(retry = False)
    
     def get_name_list(self):
         if len(self.names) == 0:
@@ -49,58 +62,78 @@ class FaceDatabaseManager:
     def get_name_embeddings_dict(self):
         return self.name_embeddings_dict
     
-    def generate_embeddings(self, regenerate_all = False):
+    def generate_database_embeddings(self, names_to_process = None):
+        '''
+        Generate embeddings files for faces in the database, if not assign names_to_process, generate all
+        '''
         if not self.have_face_recognizer:
             print('FaceDatabaseManager::generate_embeddings: FaceRecognizer is not set!')
             return
 
         self._load_names()
         
-        if regenerate_all:
+        if names_to_process is None: # generate all
             for name in self.names:
                 folder_path = os.path.join(self.database_root, name)
                 embaddings_path = os.path.join(folder_path, 'embeddings.npy')
-                stack = self.face_recognizer.generate_embeddings(folder_path)
+                stack = self.face_recognizer.generate_embeddings_from_folder(folder_path)
                 if stack is None:
                     continue
                 np.save(embaddings_path, stack)
         else:
-            names_without_embeddings = []
-            for name in self.names:
-                if name not in self.name_embeddings_dict:
-                    names_without_embeddings.append(name)
-                    
-            for name in names_without_embeddings:
+            namesToProcess = []
+            for name in names_to_process:
+                if name not in self.names:
+                    print(f'FaceDatabaseManager::generate_database_embeddings: Name "{name}" does not exist in the database')
+                    continue
+                namesToProcess.append(name)
+
+            for name in namesToProcess:
                 folder_path = os.path.join(self.database_root, name)
                 embaddings_path = os.path.join(folder_path, 'embeddings.npy')
-                np.save(embaddings_path, self.face_recognizer.generate_embeddings(folder_path))
+                stack = self.face_recognizer.generate_embeddings_from_folder(folder_path)
+                if stack is None:
+                    continue
+                np.save(embaddings_path, stack)
 
-    def add_new_face(self, image, name = ''):
+    def add_new_face(self, image, name = None, embedding = None):
+        '''
+        add new face to current processing session, and save image to database, but not embeddings, return the name of the new face.
+        To save embeddings to database, call store_embeddings()
+        '''
         if not self.have_face_recognizer:
             print('FaceDatabaseManager::add_new_face: FaceRecognizer is not set!')
-            return
-        
-        self._load_names()
-        
-        if name in self.names:
-            embaddings_path = os.path.join(self.database_root, name, 'embeddings.npy')
-            if os.path.exists(embaddings_path):
-                os.remove(embaddings_path)
-        elif name == '':
+            return None
+            
+        if name is None:
             name = self._generate_name() #generate a new name for new face
-            os.makedirs(os.path.join(self.database_root, name), exist_ok=True)
-        else:
-            os.makedirs(os.path.join(self.database_root, name), exist_ok=True)
+        os.makedirs(os.path.join(self.database_root, name), exist_ok=True)
             
         id = 0
         while os.path.exists(os.path.join(self.database_root, name, f'{id}.png')):
             id += 1
         cv2.imwrite(os.path.join(self.database_root, name, f'{id}.png'), image)
             
-        self.generate_embeddings()
-        self.load_data()
+        self.add_embedding(name, embedding)
         
         return name
+    
+    def add_embedding(self, name, embedding):
+        if embedding is None:
+            return
+        
+        if embedding.shape[-1] != 512:
+            print('FaceDatabaseManager::add_embedding: embedding should be shape (512,)')
+            return
+        
+        if name not in self.name_embeddings_dict.keys():
+            self.name_embeddings_dict[name] = np.reshape(embedding, (1, 512))
+        else:
+            self.name_embeddings_dict[name] = np.append(self.name_embeddings_dict[name], np.reshape(embedding, (1, 512)), axis = 0)
+        
+        # for debug
+        for item in self.name_embeddings_dict.items():
+            print(item[0], item[1].shape, len(item[1]))
     
     def smart_merge_faces(self, threshold = 0.3):
         if not self.have_face_recognizer:
@@ -118,7 +151,7 @@ class FaceDatabaseManager:
         not_merged_names = []
         for name in single_emb_names:
             embaddings = self.name_embeddings_dict[name][0]
-            pred_name_score = self.face_recognizer._search_average(embaddings, multi_emb_dict, threshold)
+            pred_name_score = self.face_recognizer._search_similar(embaddings, multi_emb_dict, threshold)
             if pred_name_score == None:
                 not_merged_names.append(name)
                 continue
@@ -130,11 +163,16 @@ class FaceDatabaseManager:
             emb = self.name_embeddings_dict[not_merged_names[i]][0]
             for j in range(i+1, len(not_merged_names)):
                 emb2 = self.name_embeddings_dict[not_merged_names[j]][0]
-                score = np.dot(emb, emb2.T)
+                print(emb.shape, emb2.shape)
+                score = np.dot(emb, emb2)
                 if score > threshold:
                     self.rename_face(not_merged_names[i], not_merged_names[j])
                 
     def store_embeddings(self):
+        if self.name_embeddings_dict is None or len(self.name_embeddings_dict) == 0:
+            return
+        
+        print('FaceDatabaseManager::store_embeddings: Storing embeddings...')
         for name, embaddings in self.name_embeddings_dict.items():
             embaddings_path = os.path.join(self.database_root, name, 'embeddings.npy')
             np.save(embaddings_path, embaddings)
@@ -162,20 +200,27 @@ class FaceDatabaseManager:
             shutil.rmtree(os.path.join(self.database_root, old_name))
             folder_path = os.path.join(self.database_root, new_name)
             embaddings_path = os.path.join(folder_path, 'embeddings.npy')
-            np.save(embaddings_path, self.face_recognizer.generate_embeddings(folder_path))
-            self.load_data()
+            stack = self.face_recognizer.generate_embeddings_from_folder(folder_path)
+            if stack is None:
+                return
+            else:
+                np.save(embaddings_path, stack)
+                self.name_embeddings_dict[new_name] = stack
+                self.name_embeddings_dict.pop(old_name)
         else:
             os.rename(os.path.join(self.database_root, old_name), os.path.join(self.database_root, new_name))
             print(f'{old_name} renamed to {new_name}')
-            self.load_data()
+            self.name_embeddings_dict[new_name] = self.name_embeddings_dict[old_name]
+            self.name_embeddings_dict.pop(old_name)
                 
     def delete_face(self, name):
+        self._load_names()
         if name not in self.names:
             print(f'Name "{name}" does not exist in the database')
             return
 
         shutil.rmtree(os.path.join(self.database_root, name))
-        self.load_data()
+        self.name_embeddings_dict.pop(name)
     
     def _load_names(self):
         # load all names in database into self.names
@@ -193,3 +238,5 @@ class FaceDatabaseManager:
                 return name
             i += 1
      
+    def __del__(self):
+        pass
