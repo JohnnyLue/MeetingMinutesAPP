@@ -3,12 +3,11 @@ import os
 import subprocess
 import shutil
 import tempfile
-import tqdm
 
 supported_format = ['mp4']
 
 class VideoManager:
-    def __init__(self, video_path = 0, store_dir = './'):
+    def __init__(self, video_path = 0, store_dir = './storedVideo'):
         self.is_ready = False
         self.writing = False
         self.tempdir = tempfile.mkdtemp()
@@ -53,8 +52,9 @@ class VideoManager:
         
         self.cap = cv2.VideoCapture(self.video_path)
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total_time = self.total_frames/self.cap.get(cv2.CAP_PROP_FPS)
         print(f'total frames: {self.total_frames}')
-        print(f'time: {self.total_frames/self.cap.get(cv2.CAP_PROP_FPS)}')
+        print(f'time: {self.total_time}')
         
         # get video info
         self.file_name = os.path.basename(self.video_path)
@@ -62,14 +62,7 @@ class VideoManager:
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        self.process_fps = self.fps # default process fps
-        
-        ret, self.frame = self.cap.read()
-        if not ret or self.frame is None:
-            print('VideoManager::load_video: load video failed.')
-            return
-        
+                
         self.is_ready = True
     
     def extract_audio(self):
@@ -91,27 +84,11 @@ class VideoManager:
     def print_info(self):
         print(f'Name:{self.file_name}, codec:{self.codec}, fps:{self.fps}, height:{self.height}, width:{self.width}')
     
-    def set_fps(self, fps):
-        if not self.is_ready:
-            print('VideoManager::set_fps: initialization is not done.')
-            return
-        if fps <= 0:
-            print('VideoManager::set_fps: fps must be greater than 0.')
-            return
-        self.process_fps = fps
-    
-    def get_fps(self):
-        if not self.is_ready:
-            print('VideoManager::set_fps: initialization is not done.')
-            return
-        return self.process_fps
-    
     def next_frame(self):
         if not self.is_ready:
             print('VideoManager::next_frame: initialization is not done.')
             return
-        self.cur_time = (self.cur_time + 1.0/self.process_fps)
-        self.cap.set(cv2.CAP_PROP_POS_MSEC, self.cur_time * 1000)
+        
         ret, self.frame = self.cap.read()
         if not ret or self.frame is None:
             print('VideoManager::next_frame: read frame failed.')
@@ -119,38 +96,82 @@ class VideoManager:
         
         return self.frame
     
+    def get_frame(self):
+        '''
+        get the current frame by time, won't update current time
+        '''
+        if not self.is_ready:
+            print('VideoManager::get_frame: initialization is not done.')
+            return
+        if self.frame is None:
+            print('VideoManager::get_frame: read frame failed.')
+            return None
+        
+        return self.frame
+        
+    def forward(self, seconds):
+        '''
+        input: [float] seconds to forward
+        '''
+        if not self.is_ready:
+            print('VideoManager::forward: initialization is not done.')
+            return
+        if seconds <= 0:
+            print('VideoManager::forward: seconds must be positive float.')
+            return
+        cur_time_ms = self.cap.get(cv2.CAP_PROP_POS_MSEC)
+        new_time_ms = min(cur_time_ms + seconds * 1000, self.total_time * 1000)
+        self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time_ms)
+        self.frame = self.cap.read()[1]
+    
+    def rewind(self, seconds):
+        if not self.is_ready:
+            print('VideoManager::rewind: initialization is not done.')
+            return
+        if seconds <= 0:
+            print('VideoManager::rewind: seconds must be positive float.')
+            return
+        
+        cur_time_ms = self.cap.get(cv2.CAP_PROP_POS_MSEC)
+        new_time_ms = max(cur_time_ms - seconds * 1000, 0)
+        self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time_ms)
+        self.frame = self.cap.read()[1]
+       
+    def is_end(self):
+        if not self.is_ready:
+            print('VideoManager::is_end: initialization is not done.')
+            return False
+        
+        return self.cap.get(cv2.CAP_PROP_POS_FRAMES) >= self.total_frames
+     
     def get_time(self):
         if not self.is_ready:
             print('VideoManager::get_time: initialization is not done.')
             return 0
+        
         return round(self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000, 1)
-    
-    def set_process_fps(self, fps):
-        if not self.is_ready:
-            print('VideoManager::set_fps: initialization is not done.')
-            return
-        self.fps = fps
-        self.cap.set(cv2.CAP_PROP_FPS, fps)
     
     def save_video(self, path = ''):
         if not self.is_ready:
             print('VideoManager::save_video: initialization is not done.')
             return
         if path == '':
-            path = self._generate_file_name()
+            path = self._generate_file_path(self.store_dir)
             
         p = subprocess.Popen(['ffmpeg', '-y', '-i', self.video_path, '-i', self.extracted_audio_path, path])
         p.wait()
         
-    def _generate_file_name(self):
+    def _generate_file_path(self, dir):
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
         fname = timestamp+'.mp4'
+        fpath = os.path.join(dir, fname)
         i = 1
-        while os.path.exists(fname):
+        while os.path.exists(fpath):
             fname = timestamp + f' ({i})' +'.mp4'
+            fpath = os.path.join(dir, fname)
             i+=1
-        return fname
+        return fpath
     
     def __del__(self):
         if self.is_ready:

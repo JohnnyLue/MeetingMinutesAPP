@@ -25,27 +25,21 @@ class FaceAnalyzer:
         med = np.median(values)
         
         ### visualize in cmd
-        os.system('cls')
         #for name in self.name_open_value_dict.keys():
-        print(name)
-        for value in self.name_open_value_dict[name]:
-            print(f'{value:04.2f} ', end='')
-            for i in range(int(value)):
-                if i < med:
-                    print('-', end='')
-                else:
-                    print('*', end='')
-            print('', end='\n')
+        #print(name)
+        #for value in self.name_open_value_dict[name]:
+        #    print(f'{value:04.2f} ', end='')
+        #    for i in range(int(value)):
+        #        if i < med:
+        #            print('-', end='')
+        #        else:
+        #            print('*', end='')
+        #    print('', end='\n')
             
         cross_zero = 0
         for i in range(len(values)-1):
             if (values[i] - med)*(values[i+1] - med) < 0:
                 cross_zero += 1
-                
-        if cross_zero > len(values)*threshold:
-            print('TALKING')
-        else:
-            print('NOT TALKING')
             
         return cross_zero > len(values)*threshold
         

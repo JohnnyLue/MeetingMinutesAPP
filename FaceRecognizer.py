@@ -45,7 +45,7 @@ class FaceRecognizer(FaceAnalysis):
         faces = self.get(image)
         return faces
 
-    def get_name(self, image, face, fdm, create_new_face=False, face_quality = 0.7, search_threshold=0.3):
+    def get_name(self, image, face, fdm, create_new_face=False, face_quality = 0.75, add_face_threshold = 0.1, search_threshold=0.3):
         '''
         input:
         image: mat_like image
@@ -59,16 +59,29 @@ class FaceRecognizer(FaceAnalysis):
         '''
         if face.det_score < face_quality: # make sure the quality of face is good
             return None
-        pred_name_score = self._search_average(face.normed_embedding, fdm.get_name_embeddings_dict(), search_threshold)
+        face_emb_dict = fdm.get_name_embeddings_dict()
+        if len(face_emb_dict) == 0:
+            pred_name_score = None
+        else:
+            pred_name_score = self._search_average(face.normed_embedding, face_emb_dict, add_face_threshold)
+            if pred_name_score is not None:
+                if pred_name_score[1] < search_threshold:
+                    face_image = self._crop_face_image(image, face)
+                    if face_image.shape[0] < 80 or face_image.shape[1] < 80: # make sure the quality of picture to add to database
+                        return None
+                    if self.get(face_image) == []:
+                        return None
+                    fdm.add_new_face(face_image, pred_name_score[0])
+                return pred_name_score
         if pred_name_score == None and create_new_face:
             face_image = self._crop_face_image(image, face)
+            if face_image.shape[0] == 0 or face_image.shape[1] == 0:
+                return None
             if self.get(face_image) == []:
                 return None
-            
-            print('FaceRecognizer:get_name: No corresponding name found')
-            print('FaceRecognizer:get_name: Creating new person...')
+            print('FaceRecognizer:get_name: Unrecognized face, creating new face in database...')
             new_name = fdm.add_new_face(face_image) # add a new face to database and let fdm decide the name
-            print(f'FaceRecognizer:get_name: new person name: {new_name}')
+            print(f'FaceRecognizer:get_name: Sucessfully created new member: {new_name}')
             return (new_name, 1)
                   
         return pred_name_score
@@ -90,6 +103,7 @@ class FaceRecognizer(FaceAnalysis):
         
     def _search_average(self, emb_to_search, name_embedding_dict, threshold):
         '''
+        each name only average top 5 scores in up to 15 embeddings
         input:
         emb_to_search: Face.normed_embedding
         threshold: float
@@ -100,8 +114,10 @@ class FaceRecognizer(FaceAnalysis):
         '''
         name_scores = []
         for name, embs in name_embedding_dict.items():
-            score = np.dot(emb_to_search, embs.T)
-            name_scores.append((name, np.average(score)))
+            scores = np.round(np.dot(emb_to_search, embs.T), 3)
+            sorted_scores = np.sort(scores, axis=0)
+            name_scores.append((name, np.average(sorted_scores[-5:])))
+        print(name_scores)
 
         if len(name_scores) == 0:
             return None
@@ -115,5 +131,10 @@ class FaceRecognizer(FaceAnalysis):
     
     def _crop_face_image(self, image, face):
         box = face.bbox.astype(int)
-        return image[box[1]:box[3], box[0]:box[2]]
+        img_hei = image.shape[0]
+        img_wid = image.shape[1]
+        # 20% padding
+        img = image[int(max(box[1] * 1.2 - box[3] * 0.2, 0)):int(min(box[3] * 1.2 - box[1] * 0.2, img_hei - 1)),
+                    int(max(box[0] * 1.2 - box[2] * 0.2, 0)):int(min(box[2] * 1.2 - box[0] * 0.2, img_wid - 1))]
+        return img
     

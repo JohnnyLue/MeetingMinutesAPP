@@ -4,5 +4,6 @@ database
 *.mp3
 *.mp4
 *.txt
+*.pyc
 test*
 __pycache__
