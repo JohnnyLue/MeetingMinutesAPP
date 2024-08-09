@@ -22,14 +22,6 @@ class VideoManager:
         # load video
         if video_path != 0:
             self.load_video(video_path)
-                            
-        # extract audio and video
-        if self.is_ready:
-            self.extracted_audio_path = self.extract_audio()
-            #self.extracted_video_path = self.extract_video()
-            if not self.extracted_audio_path:
-                print('VideoManager::__init__: extract audio failed.')
-                return
         
     def load_video(self, video_path):
         self.video_path = 0
@@ -62,24 +54,11 @@ class VideoManager:
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                
+        
         self.is_ready = True
-    
-    def extract_audio(self):
-        '''
-        extract audio from video, stored in wav
-        output: [str] the path of extracted audio
-        '''
-        if not self.is_ready:
-            print('VideoManager::extract_audio: initialization is not done.')
-            return
         
-        path = os.path.join(self.tempdir, 'extracted.wav')
-
-        p = subprocess.Popen(['ffmpeg', '-y', '-i', self.video_path, path])
-        p.wait()
+        self.next_frame()
         
-        return path
     
     def print_info(self):
         print(f'Name:{self.file_name}, codec:{self.codec}, fps:{self.fps}, height:{self.height}, width:{self.width}')

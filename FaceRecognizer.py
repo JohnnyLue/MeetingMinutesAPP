@@ -84,30 +84,30 @@ class FaceRecognizer(FaceAnalysis):
         if face.det_score < GOOD_FACE_QUALITY: # make sure the quality of face is good
             return None
         
-        if len(face_emb_dict) == 0:
+        if create_new_face:
             face_image = self._crop_face_image(image, face)
             if face_image.shape[0] < LEAST_IMG_SIZE or face_image.shape[1] < LEAST_IMG_SIZE: # make sure the quality of picture to add to database
-                return None
+                create_new_face = False
             if self.get(face_image) == []:
-                print('FaceRecognizer::get_name: Just checking, should not be here.')
-                return None
+                create_new_face = False
             
-            print('FaceRecognizer::get_name: No face in database, creating new face...')
-            new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
-            return new_name
+        if len(face_emb_dict) == 0:
+            if create_new_face:
+                if self.get(face_image) == []:
+                    print('FaceRecognizer::get_name: Just checking, should not be here.')
+                    return None
+                
+                print('FaceRecognizer::get_name: No face in database, creating new face...')
+                new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
+                return new_name
+            else:
+                return None
             
         pred_name_score = self._search_similar(face.normed_embedding, face_emb_dict)
         if pred_name_score is None:
             return None
         
         if pred_name_score[1] < search_threshold and create_new_face:
-            face_image = self._crop_face_image(image, face)
-            if face_image.shape[0] < LEAST_IMG_SIZE or face_image.shape[1] < LEAST_IMG_SIZE: # make sure the quality of picture to add to database
-                return None
-            if self.get(face_image) == []:
-                print('FaceRecognizer::get_name: Just checking, should not be here.')
-                return None
-            
             if pred_name_score[1] < new_face_threshold: # create new face in database
                 print('FaceRecognizer::get_name: Unrecognized face, creating new face in database...')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
