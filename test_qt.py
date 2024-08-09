@@ -49,11 +49,6 @@ class MainWindow(QtWidgets.QWidget):
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
-        self.setStyleSheet('''
-            QWidget#MainWindow {
-                background-color: #666;
-            }
-        ''')
         
         self.resize(800, 600)
         self.ui()
@@ -99,10 +94,11 @@ class MainWindow(QtWidgets.QWidget):
         # Database Operations
         db_layout = QtWidgets.QVBoxLayout()
         db_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        db_layout.setSpacing(10)
         self.database_label = QtWidgets.QLabel("資料庫操作:", self)
         self.database_label.setFont(MyFont())
         self.select_database_button = self.new_button("選擇資料庫")
-        self.select_database_button.clicked.connect(self.select_database_dialog)
+        self.select_database_button.setDefaultAction(QtWidgets.QAction("選擇資料庫", self, triggered=self.select_database_dialog))
         self.add_button = self.new_button("新增")
         self.delete_button = self.new_button("刪除")
         self.move_button = self.new_button("移動")
@@ -146,15 +142,17 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(db_and_parm_layout)
 
         # Test Execution Section
-        self.test_button = QtWidgets.QPushButton("測試執行")
-        self.test_button.setFont(MyFont())
+        self.test_button = self.new_button("測試執行")
         layout.addWidget(self.test_button)
         
         self.signal_manager.requestParams.emit()
         self.signal_manager.requestProgress.emit()
 
     def new_button(self, text):
-        btn = QtWidgets.QPushButton(text, self)
+        btn = QtWidgets.QToolButton(self)
+        btn.setText(text)
+        btn.setAutoRaise(True)
+        btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         btn.setFixedHeight(40)
         btn.setFixedWidth(150)
         btn.setFont(MyFont())
@@ -372,15 +370,15 @@ class FileDropArea(QtWidgets.QWidget):
         self.setAcceptDrops(True)
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(640, 360)
-        self.setStyleSheet('''
-            QWidget {
-                border: 2px dashed #aaa;
-                border-radius: 20px;
-                font-size: 16px;
-                color: #000;
-                background-color: #FFF;
-            }
-        ''')
+        #self.setStyleSheet('''
+        #    QWidget {
+        #        border: 2px dashed #aaa;
+        #        border-radius: 20px;
+        #        font-size: 16px;
+        #        color: #000;
+        #        background-color: #FFF;
+        #    }
+        #''')
         self.label = QtWidgets.QLabel("拖放檔案至此，或點擊選取檔案", self)
         self.label.setFont(MyFont())
         self.label.setAlignment(QtCore.Qt.AlignCenter)
@@ -403,6 +401,8 @@ class FileDropArea(QtWidgets.QWidget):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
+    with open("Incrypt.qss", "r") as f:
+        app.setStyleSheet(f.read())
     signal_manager = SignalManager()
     backend = Backend(signal_manager)
     MainWindow = MainWindow(signal_manager)
