@@ -59,7 +59,6 @@ class VideoManager:
         
         self.next_frame()
         
-    
     def print_info(self):
         print(f'Name:{self.file_name}, codec:{self.codec}, fps:{self.fps}, height:{self.height}, width:{self.width}')
     

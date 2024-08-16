@@ -10,7 +10,16 @@ from FaceDatabaseManager import FaceDatabaseManager
 from FaceAnalyzer import FaceAnalyzer
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
-      
+from Record import Record
+
+default_params = {
+    "det_size": "480x480",
+    "whisper_model": "small",
+    "language": "zh",
+    "new_member_prefix": "member_",
+    "value_window_size": 20
+}
+
 def cv2_to_pixmap(cv2_img):
     cv2_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
     height, width, channel = cv2_img.shape
@@ -217,27 +226,28 @@ class MainWindow(QtWidgets.QWidget):
         error_dialog.exec_()
         
 class Backend(QtCore.QObject):
-    def __init__(self, signal_manager: SignalManager):
+    def __init__(self, signal_manager: SignalManager, record: Record):
         super().__init__()
         self.signal_manager = signal_manager
+        self.record = record
+        self.params = {}
         
+        # connect signals
         self.signal_manager.selectedVideo.connect(self.set_video_path)
         self.signal_manager.selectedDatabase.connect(self.set_database_path)
         self.signal_manager.testRun.connect(self.test_run)
         self.signal_manager.startProcess.connect(self.run)
         self.signal_manager.requestPreviewImg.connect(self.update_preview_img)
-        self.signal_manager.alterParam.connect(self.alter_param)
+        self.signal_manager.alterParam.connect(self.set_param)
         self.signal_manager.requestParams.connect(self.get_params)
         self.signal_manager.requestProgress.connect(self.update_progress)
         
-        # parameters
-        self.det_size = "480x480"
-        self.whisper_model = "small"
-        self.language = "zh"
-        self.new_member_prefix = "member_"
-        self.value_window_size = 20
+        # parameters from record, if not recorded, use default
+        for key, _ in default_params.items():
+            print(f"Get parameter {key} from record: {record.get_parameter(key)}")
+            self.set_param(key, record.get_parameter(key))
         
-        # create vm first for preview
+        # create ViedoManager first for video preview
         self.vm = VideoManager()
         
         self.running = False
@@ -319,26 +329,23 @@ class Backend(QtCore.QObject):
             self.signal_manager.updateProgress.emit(self.cur_process, self.cur_progress, self.total_progress)
     
     @QtCore.pyqtSlot(str, str)
-    def alter_param(self, param_name, value):
-        #self.det_size = "480x480"
-        #self.whisper_model = "small"
-        #self.language = "zh"
-        #self.new_member_prefix = "member_"
-        #self.value_window_size = 20
+    def set_param(self, param_name, value):
+        change_to_default = False
+        if value is None:
+            change_to_default = True
         
-        if param_name == "det_size":
-            self.det_size = value
-        elif param_name == "whisper_model":
-            self.whisper_model = value
-        elif param_name == "language":
-            self.language = value
-        elif param_name == "new_member_prefix":
-            self.new_member_prefix = value
-        elif param_name == "value_window_size":
-            self.value_window_size = int(value)
+        if change_to_default:
+            self.params[param_name] = default_params[param_name]
+        else:
+            self.params[param_name] = value
         
     def test_run(self):
         print(f"Run with parameters: {self.det_size}, {self.param2}, {self.param3}")
+        
+    def save_record(self):
+        for key, _ in default_params.items():
+            self.record.set_parameter(key, self.params[key])
+        self.record.export()
 
 class ErrorDialog(QtWidgets.QDialog):
     def __init__(self, message):
@@ -400,11 +407,13 @@ class FileDropArea(QtWidgets.QWidget):
             self.parent().select_video_dialog()
 
 if __name__ == '__main__':
-    app = QtWidgets.QApplication(sys.argv)
-    with open("Incrypt.qss", "r") as f:
-        app.setStyleSheet(f.read())
+    #app = QtWidgets.QApplication(sys.argv)
+    #with open("Incrypt.qss", "r") as f:
+    #    app.setStyleSheet(f.read())
     signal_manager = SignalManager()
-    backend = Backend(signal_manager)
-    MainWindow = MainWindow(signal_manager)
-    MainWindow.show()
-    sys.exit(app.exec_())
+    record = Record("records/2024_08_16.json")
+    backend = Backend(signal_manager, record)
+    backend.save_record()
+    #MainWindow = MainWindow(signal_manager)
+    #MainWindow.show()
+    #sys.exit(app.exec_())

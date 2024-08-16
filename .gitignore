@@ -7,3 +7,4 @@ database*
 *.pyc
 __pycache__
 .vscode
+records
