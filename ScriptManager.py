@@ -93,6 +93,13 @@ class ScriptManager:
             s = line.strip().split('_')
             self.result.append({'start':float(s[0]), 'end':float(s[1]), 'text':s[2]})
 
+    def load_script_from_record(self, record):
+        result = record.get_script()
+        if result == None:
+            print("ScriptManager::load_script_from_record: no script in record")
+        else:
+            self.result = result
+
     def script_detected_in(self, _from:float, _to:float):
         '''
         input:

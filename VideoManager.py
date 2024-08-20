@@ -58,6 +58,12 @@ class VideoManager:
         self.is_ready = True
         
         self.next_frame()
+     
+    def get_video_path(self):
+        if not self.is_ready:
+            print('VideoManager::get_video_path: initialization is not done.')
+            return None
+        return self.video_path
         
     def print_info(self):
         print(f'Name:{self.file_name}, codec:{self.codec}, fps:{self.fps}, height:{self.height}, width:{self.width}')

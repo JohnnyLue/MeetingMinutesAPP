@@ -1,9 +1,8 @@
 import cv2
 from PyQt5 import QtWidgets, QtCore, QtGui
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtCore import QUrl
 import sys
+import threading
+import time
 
 from FaceRecognizer import FaceRecognizer
 from FaceDatabaseManager import FaceDatabaseManager
@@ -17,7 +16,7 @@ default_params = {
     "whisper_model": "small",
     "language": "zh",
     "new_member_prefix": "member_",
-    "value_window_size": 20
+    "value_window_size": "20"
 }
 
 def cv2_to_pixmap(cv2_img):
@@ -47,6 +46,9 @@ class SignalManager(QtCore.QObject):
     
     testRun = QtCore.pyqtSignal() # 要求測試執行
     startProcess = QtCore.pyqtSignal() # 要求開始處理
+    recordOverwrite = QtCore.pyqtSignal() # 要求確認是否覆蓋紀錄
+    recordOverwriteConfirmed = QtCore.pyqtSignal() # 確認覆蓋紀錄
+    
     errorOccor = QtCore.pyqtSignal(str) # 錯誤訊息
     ProcessFinished = QtCore.pyqtSignal(str) # 任務完成: 紀錄檔位置
 
@@ -55,21 +57,27 @@ class MainWindow(QtWidgets.QWidget):
         super().__init__()
         self.signal_manager = signal_manager
         self.signal_manager.errorOccor.connect(self.open_error_dialog)
+        self.signal_manager.recordOverwrite.connect(self.open_check_overwrite_dialog)
+        self.signal_manager.selectedVideo.connect(self.switch_video_preview)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
         
         self.resize(800, 600)
         self.ui()
-
+        
+        self.have_video_preview = False
+        
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
 
         video_and_progress_layout = QtWidgets.QVBoxLayout()
         # Video Upload Section
         self.video_area = QtWidgets.QVBoxLayout()
+        self.select_video_button = self.new_button()
+        self.select_video_button.setDefaultAction(QtWidgets.QAction("選擇影片", self, triggered=self.open_select_video_dialog))
         self.video_drop_area = FileDropArea(self)
-        self.signal_manager.selectedVideo.connect(self.switch_video_preview)
+        self.video_area.addWidget(self.select_video_button)
         self.video_area.addWidget(self.video_drop_area)
         video_and_progress_layout.addLayout(self.video_area)
                 
@@ -106,20 +114,31 @@ class MainWindow(QtWidgets.QWidget):
         db_layout.setSpacing(10)
         self.database_label = QtWidgets.QLabel("資料庫操作:", self)
         self.database_label.setFont(MyFont())
-        self.select_database_button = self.new_button("選擇資料庫")
+        self.select_database_button = self.new_button()
         self.select_database_button.setDefaultAction(QtWidgets.QAction("選擇資料庫", self, triggered=self.select_database_dialog))
-        self.add_button = self.new_button("新增")
-        self.delete_button = self.new_button("刪除")
-        self.move_button = self.new_button("移動")
-        self.rename_button = self.new_button("重新命名")
-        self.merge_button = self.new_button("合併")
+        ops = ["新增", "刪除", "移動", "重新命名", "合併"]
+        self.db_tabWidget = QtWidgets.QTabWidget(self)
+        self.db_tabWidget.setFixedHeight(400)
+        self.db_tabWidget.setFixedWidth(450)
+        self.db_tabWidget.setFont(MyFont())
+        self.add_widget = QtWidgets.QWidget()
+        self.delete_widget = QtWidgets.QWidget()
+        self.move_widget = QtWidgets.QWidget()
+        self.rename_widget = QtWidgets.QWidget()
+        self.merge_widget = QtWidgets.QWidget()
+        self.db_tabWidget.addTab(self.add_widget, "新增")
+        self.db_tabWidget.addTab(self.delete_widget, "刪除")
+        self.db_tabWidget.addTab(self.move_widget, "移動")
+        self.db_tabWidget.addTab(self.rename_widget, "重新命名")
+        self.db_tabWidget.addTab(self.merge_widget, "合併")
+        self.add_widget_ui()
+        self.delete_widget_ui()
+        self.move_widget_ui()
+        self.rename_widget_ui()
+        self.merge_widget_ui()
         db_layout.addWidget(self.database_label)
         db_layout.addWidget(self.select_database_button)
-        db_layout.addWidget(self.add_button)
-        db_layout.addWidget(self.delete_button)
-        db_layout.addWidget(self.move_button)
-        db_layout.addWidget(self.rename_button)
-        db_layout.addWidget(self.merge_button)
+        db_layout.addWidget(self.db_tabWidget)
         db_and_parm_layout.addLayout(db_layout)
         db_and_parm_layout.addSpacing(30)
 
@@ -151,15 +170,60 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(db_and_parm_layout)
 
         # Test Execution Section
-        self.test_button = self.new_button("測試執行")
+        self.test_button = self.new_button()# "測試執行"
         layout.addWidget(self.test_button)
         
         self.signal_manager.requestParams.emit()
         self.signal_manager.requestProgress.emit()
 
-    def new_button(self, text):
+    def add_widget_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        add_button = self.new_button()
+        add_button.setDefaultAction(QtWidgets.QAction("新增", self))
+        layout.addWidget(add_button)
+        self.add_widget.setLayout(layout)
+        
+    def delete_widget_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        add_button = self.new_button()
+        add_button.setDefaultAction(QtWidgets.QAction("adf", self))
+        layout.addWidget(add_button)
+        self.delete_widget.setLayout(layout)
+        
+    def move_widget_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        add_button = self.new_button()
+        add_button.setDefaultAction(QtWidgets.QAction("adsf", self))
+        layout.addWidget(add_button)
+        self.move_widget.setLayout(layout)
+    
+    def rename_widget_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        add_button = self.new_button()
+        add_button.setDefaultAction(QtWidgets.QAction("faaf", self))
+        layout.addWidget(add_button)
+        self.rename_widget.setLayout(layout)
+        
+    def merge_widget_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        add_button = self.new_button()
+        add_button.setDefaultAction(QtWidgets.QAction("eee", self))
+        layout.addWidget(add_button)
+        self.merge_widget.setLayout(layout)
+        
+    def new_button(self):
         btn = QtWidgets.QToolButton(self)
-        btn.setText(text)
+        #btn.setText(text)
         btn.setAutoRaise(True)
         btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         btn.setFixedHeight(40)
@@ -201,29 +265,63 @@ class MainWindow(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(str)
     def switch_video_preview(self, file_path: str):
-        self.video_area.removeWidget(self.video_drop_area)
-        self.video_preview = QtWidgets.QLabel(self)
-        self.video_preview.setFixedSize(640, 360)
-        self.video_area.addWidget(self.video_preview)
-        self.signal_manager.UpdatePrevewImg.connect(self.update_video_preview)
-        self.signal_manager.requestPreviewImg.emit()
+        if self.have_video_preview:
+            self.video_preview.reset()
+            self.video_preview.load(file_path)
+        else:
+            self.video_area.takeAt(1).widget().deleteLater()
+            self.video_preview = VideoPlayer(self, file_path)
+            self.video_preview.setFixedSize(640, 360)
+            self.video_area.addWidget(self.video_preview)
+            self.have_video_preview = True
+            
+            control_layout = QtWidgets.QHBoxLayout()
+            control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.video_rewind_button = self.new_button()
+            self.video_rewind_button.setDefaultAction(QtWidgets.QAction("後退", self, triggered=lambda: self.video_preview.rewind(5)))
+            self.video_pause_button = self.new_button()
+            self.video_pause_button.setDefaultAction(QtWidgets.QAction("播放", self, triggered=lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停"))))
+            self.video_forward_button = self.new_button()
+            self.video_forward_button.setDefaultAction(QtWidgets.QAction("前進", self, triggered=lambda: self.video_preview.forward(5)))
+            control_layout.addWidget(self.video_rewind_button)
+            control_layout.addWidget(self.video_pause_button)
+            control_layout.addWidget(self.video_forward_button)
+            self.video_area.addLayout(control_layout)
+        self.video_preview.play()
+        
+        #self.signal_manager.UpdatePrevewImg.connect(self.update_video_preview)
+        #self.signal_manager.requestPreviewImg.emit()
         
     @QtCore.pyqtSlot(QtGui.QPixmap)
     def update_video_preview(self, pixmap):
         self.video_preview.setPixmap(pixmap.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
         
-    def select_video_dialog(self):
+    def open_select_video_dialog(self):
         video_file_dialog = QtWidgets.QFileDialog(self)
         video_file_dialog.setNameFilter("Video File (*.mp4)")
         if video_file_dialog.exec_():
             file_path = video_file_dialog.selectedFiles()[0]
             if file_path:
                 self.signal_manager.selectedVideo.emit(file_path)
-                
+    
+    @QtCore.pyqtSlot()
+    def open_check_overwrite_dialog(self):
+        check_dialog = QtWidgets.QMessageBox(self)
+        check_dialog.setWindowTitle("確認")
+        check_dialog.setText("紀錄已存在，是否覆蓋？")
+        check_dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+        if check_dialog.exec_() == QtWidgets.QMessageBox.StandardButton.Yes:
+            self.signal_manager.recordOverwriteConfirmed.emit()
+       
     @QtCore.pyqtSlot(str)
     def open_error_dialog(self, message):
         error_dialog = ErrorDialog(message)
         error_dialog.exec_()
+        
+    def closeEvent(self, event):
+        if self.have_video_preview:
+            self.video_preview.reset()
+        event.accept()
         
 class Backend(QtCore.QObject):
     def __init__(self, signal_manager: SignalManager, record: Record):
@@ -241,11 +339,12 @@ class Backend(QtCore.QObject):
         self.signal_manager.alterParam.connect(self.set_param)
         self.signal_manager.requestParams.connect(self.get_params)
         self.signal_manager.requestProgress.connect(self.update_progress)
+        self.signal_manager.recordOverwriteConfirmed.connect(self.clear_record_and_run)
         
         # parameters from record, if not recorded, use default
         for key, _ in default_params.items():
-            print(f"Get parameter {key} from record: {record.get_parameter(key)}")
-            self.set_param(key, record.get_parameter(key))
+            #print(f"Get parameter {key} from record: {record.get_parameter(key)}")
+            self.set_param(key, record.get_parameter(key)) # if param is not set in record, get_parameter will return None, and set_param will use default value.
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -254,39 +353,78 @@ class Backend(QtCore.QObject):
     
     @QtCore.pyqtSlot()
     def run(self):
-        # check parameters is valid
-        if not self.det_size:
-            self.signal_manager.errorOccor.emit("Please set the detection size.")
+        if self.record.is_ready:
+            self.signal_manager.recordOverwrite.emit()
             return
-        if not self.whisper_model:
-            self.signal_manager.errorOccor.emit("Please set the whisper model.")
-            return
-        if not self.new_member_prefix:
-            self.signal_manager.errorOccor.emit("Please set the new member prefix.")
-            return
+            
         if not self.vm.is_ready:
             self.signal_manager.errorOccor.emit("Please select a video.")
             return
         if self.running:
             self.signal_manager.errorOccor.emit("The process is already running.")
             return
-        if self.det_size.format(r"\d+x\d+") is None:
+        if self.params['det_size'].format(r"\d+x\d+") is None:
             self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
             return
-        det_size = tuple(map(int, self.det_size.split("x")))
+        
+        det_size = self.params['det_size'].format(r"\d+x\d+")
+        det_size = tuple(map(int, det_size.split("x")))
         if det_size[0] < 0 or det_size[1] < 0:
             self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
             
         try:
             self.fr = FaceRecognizer(det_size=det_size)
-            self.fdm = FaceDatabaseManager(self.face_database, self.fr, new_member_prefix=self.new_member_prefix)
-            self.fa = FaceAnalyzer(value_window_size=self.value_window_size)
-            self.sm = ScriptManager(model_name=self.whisper_model, language=self.language)
+            self.fdm.set_face_recognizer(self.fr)
+            self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
+            self.fa = FaceAnalyzer(value_window_size=int(self.params['value_window_size']))
+            self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
         except Exception as e:
             self.signal_manager.errorOccor.emit(str(e))
             return
         
         self.running = True
+        
+        self.cur_process = "Transcribing"
+        self.sm.transcribe(self.vm.get_video_path())
+        
+        while self.running:
+            try:
+                frame = self.vm.next_frame()
+            except Exception as e:
+                self.signal_manager.errorOccor.emit(str(e))
+                self.running = False
+                break
+            faces = self.fr.get(frame)
+            bboxes = []
+            for i in range(len(faces)):
+                bbox = faces[i].bbox.astype(int).tolist()
+                bboxes.append(bbox)
+            names = []
+            for i in range(len(faces)):
+                name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=True)
+                names.append(name)
+                
+            self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
+            statuses = []
+            for i in range(len(faces)):
+                status = self.fa.is_talking(names[i])
+                statuses.append(status)
+                
+            time_s = self.vm.get_time()
+            
+            self.record.write_data(time_s, bboxes, names, statuses)
+            #print(f"Recorded at {time_s} s")
+            #print(f"bboxes: {bboxes}")
+            #print(f"Names: {names}")
+            #print(f"Statuses: {statuses}")
+            
+        self.running = False
+        self.save_record()
+        
+    @QtCore.pyqtSlot()
+    def clear_record_and_run(self):
+        self.record.clear()
+        self.run()
         
     @QtCore.pyqtSlot(str)
     def set_video_path(self, video_path: str):
@@ -299,7 +437,7 @@ class Backend(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def set_database_path(self, database_path):
         print(f"Set database path: {database_path}")
-        self.face_database = database_path
+        self.fdm = FaceDatabaseManager(database_path)
     
     @QtCore.pyqtSlot()
     def update_preview_img(self):
@@ -313,11 +451,11 @@ class Backend(QtCore.QObject):
         self.signal_manager.UpdatePrevewImg.emit(pixmap)
     
     def get_params(self):
-        self.signal_manager.updateParam.emit("det_size", self.det_size)
-        self.signal_manager.updateParam.emit("whisper_model", self.whisper_model)
-        self.signal_manager.updateParam.emit("language", self.language)
-        self.signal_manager.updateParam.emit("new_member_prefix", self.new_member_prefix)
-        self.signal_manager.updateParam.emit("value_window_size", str(self.value_window_size))
+        for key, _ in default_params.items():
+            try:
+                self.signal_manager.updateParam.emit(key, self.params[key])
+            except:
+                self.signal_manager.updateParam.emit(key, default_params[key])
     
     def update_progress(self):
         '''
@@ -404,16 +542,81 @@ class FileDropArea(QtWidgets.QWidget):
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.LeftButton:
-            self.parent().select_video_dialog()
+            self.parent().open_select_video_dialog()
 
+class VideoPlayer(QtWidgets.QLabel):
+    def __init__(self, parent=None, video_path=None):
+        super().__init__(parent)
+        self.is_paused = True
+        self.quit_loop = False
+        self.cap = None
+        self.play_thread = None
+        self.load(video_path)
+        self.setFixedSize(640, 360)
+        self.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+    def update(self, img):
+        self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
+
+    def load(self, path):
+        self.cap = cv2.VideoCapture(path)
+        self.update(cv2_to_pixmap(self.cap.read()[1]))
+
+    def reset(self):
+        self.quit_loop = True
+        self.play_thread.join()
+        self.cap.release()
+
+    def pause(self):
+        self.is_paused = not self.is_paused
+
+    def forward(self, seconds):
+        self.is_paused = True
+        time.sleep(0.1)
+        self.cap.set(cv2.CAP_PROP_POS_MSEC, self.cap.get(cv2.CAP_PROP_POS_MSEC) + seconds*1000)
+        self.is_paused = False
+    
+    def rewind(self, seconds):
+        self.is_paused = True
+        time.sleep(0.1)
+        self.cap.set(cv2.CAP_PROP_POS_MSEC, self.cap.get(cv2.CAP_PROP_POS_MSEC) - seconds*1000)
+        self.is_paused = False
+    
+    def set_time(self, seconds):
+        self.cap.set(cv2.CAP_PROP_POS_MSEC, seconds*1000)
+        
+    def get_time(self):
+        return self.cap.get(cv2.CAP_PROP_POS_MSEC)/1000
+    
+    def get_total_time(self):
+        return self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
+    
+    def play(self):
+        delay = 1.0/self.cap.get(cv2.CAP_PROP_FPS)
+        def func():
+            while True:
+                if self.quit_loop:
+                    self.quit_loop = False
+                    break
+                if not self.is_paused:
+                    ret, frame = self.cap.read()
+                    if not ret:
+                        self.is_paused = True
+                        break
+                    pFrame = cv2_to_pixmap(frame)
+                    self.update(pFrame)
+                time.sleep(delay)
+        
+        self.play_thread = threading.Thread(target=func)
+        self.play_thread.start()
+        
 if __name__ == '__main__':
-    #app = QtWidgets.QApplication(sys.argv)
-    #with open("Incrypt.qss", "r") as f:
-    #    app.setStyleSheet(f.read())
+    app = QtWidgets.QApplication(sys.argv)
+    with open("Incrypt.qss", "r") as f:
+        app.setStyleSheet(f.read())
     signal_manager = SignalManager()
-    record = Record("records/2024_08_16.json")
+    record = Record(store_base='records')
     backend = Backend(signal_manager, record)
-    backend.save_record()
-    #MainWindow = MainWindow(signal_manager)
-    #MainWindow.show()
-    #sys.exit(app.exec_())
+    MainWindow = MainWindow(signal_manager)
+    MainWindow.show()
+    sys.exit(app.exec_())

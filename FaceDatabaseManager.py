@@ -21,6 +21,13 @@ class FaceDatabaseManager:
             os.mkdir(self.database_root)
         self.load_data()
         
+    def set_face_recognizer(self, face_recognizer: FaceRecognizer):
+        self.face_recognizer = face_recognizer
+        self.have_face_recognizer = True
+        
+    def set_new_member_prefix(self, new_member_prefix):
+        self.new_member_prefix = new_member_prefix
+        
     def load_data(self, generate_all = False, retry = True):
         '''
         Load data from database, including names and embeddings.
@@ -49,8 +56,9 @@ class FaceDatabaseManager:
                 continue
             
             self.name_embeddings_dict[name] = embaddings
+            
         if len(unprocessed_names) > 0 and retry:
-            print(f'FaceDatabaseManager::load_data: Names need to generate embeddings: {unprocessed_names}')
+            print(f'FaceDatabaseManager::load_data: Try to generate embeddings for: {unprocessed_names}')
             self.generate_database_embeddings(unprocessed_names)
             self.load_data(retry = False)
    
@@ -237,6 +245,3 @@ class FaceDatabaseManager:
             if name not in self.names:
                 return name
             i += 1
-     
-    def __del__(self):
-        pass
