@@ -4,7 +4,7 @@ from PIL import ImageFont, ImageDraw, Image
 import wave
 import winsound
 
-def PutText(img, text, x_y, fontColor = (0, 0, 255), fontScale = 30):
+def PutText(img, text, x_y, fontColor = (0, 255, 0), fontScale = 30):
     img = Image.fromarray(img)
     draw = ImageDraw.Draw(img)
     fontText = ImageFont.truetype("font/mingliu.ttc", fontScale, encoding="utf-8")

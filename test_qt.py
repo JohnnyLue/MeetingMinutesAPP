@@ -1,4 +1,5 @@
 import cv2
+import math
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 import threading
@@ -10,6 +11,7 @@ from FaceAnalyzer import FaceAnalyzer
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
 from Record import Record
+from Utils import *
 
 default_params = {
     "det_size": "480x480",
@@ -29,13 +31,11 @@ def cv2_to_pixmap(cv2_img):
 class SignalManager(QtCore.QObject):
     # Define signals
     requestImgByName = QtCore.pyqtSignal(str) # 要求照片: 名字
+    requestAllMemberImg = QtCore.pyqtSignal() # 要求全部照片
     returnedMemberImg = QtCore.pyqtSignal(str, QtGui.QPixmap) # 回傳名字, 照片
 
     selectedVideo = QtCore.pyqtSignal(str) # 選擇影片: 檔案位置
     selectedDatabase = QtCore.pyqtSignal(str) # 選擇資料庫: 
-    
-    requestPreviewImg = QtCore.pyqtSignal() # 要求預覽圖
-    UpdatePrevewImg = QtCore.pyqtSignal(QtGui.QPixmap) # 更新影片預覽圖
     
     requestParams = QtCore.pyqtSignal() # 要求參數(全部)
     updateParam = QtCore.pyqtSignal(str, str) # 更新顯示參數: 參數名, 值
@@ -46,6 +46,7 @@ class SignalManager(QtCore.QObject):
     
     testRun = QtCore.pyqtSignal() # 要求測試執行
     startProcess = QtCore.pyqtSignal() # 要求開始處理
+    terminateProcess = QtCore.pyqtSignal() # 要求終止處理
     recordOverwrite = QtCore.pyqtSignal() # 要求確認是否覆蓋紀錄
     recordOverwriteConfirmed = QtCore.pyqtSignal() # 確認覆蓋紀錄
     
@@ -59,14 +60,16 @@ class MainWindow(QtWidgets.QWidget):
         self.signal_manager.errorOccor.connect(self.open_error_dialog)
         self.signal_manager.recordOverwrite.connect(self.open_check_overwrite_dialog)
         self.signal_manager.selectedVideo.connect(self.switch_video_preview)
+        self.signal_manager.returnedMemberImg.connect(self.update_database_member_img)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
         
-        self.resize(800, 600)
+        self.resize(1100, 600)
         self.ui()
         
         self.have_video_preview = False
+        self.member_name_imgs = {}
         
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
@@ -74,8 +77,8 @@ class MainWindow(QtWidgets.QWidget):
         video_and_progress_layout = QtWidgets.QVBoxLayout()
         # Video Upload Section
         self.video_area = QtWidgets.QVBoxLayout()
-        self.select_video_button = self.new_button()
-        self.select_video_button.setDefaultAction(QtWidgets.QAction("選擇影片", self, triggered=self.open_select_video_dialog))
+        self.select_video_button = self.new_button("選擇影片")
+        self.select_video_button.clicked.connect(self.open_select_video_dialog)
         self.video_drop_area = FileDropArea(self)
         self.video_area.addWidget(self.select_video_button)
         self.video_area.addWidget(self.video_drop_area)
@@ -114,31 +117,22 @@ class MainWindow(QtWidgets.QWidget):
         db_layout.setSpacing(10)
         self.database_label = QtWidgets.QLabel("資料庫操作:", self)
         self.database_label.setFont(MyFont())
-        self.select_database_button = self.new_button()
-        self.select_database_button.setDefaultAction(QtWidgets.QAction("選擇資料庫", self, triggered=self.select_database_dialog))
-        ops = ["新增", "刪除", "移動", "重新命名", "合併"]
-        self.db_tabWidget = QtWidgets.QTabWidget(self)
-        self.db_tabWidget.setFixedHeight(400)
-        self.db_tabWidget.setFixedWidth(450)
-        self.db_tabWidget.setFont(MyFont())
-        self.add_widget = QtWidgets.QWidget()
-        self.delete_widget = QtWidgets.QWidget()
-        self.move_widget = QtWidgets.QWidget()
-        self.rename_widget = QtWidgets.QWidget()
-        self.merge_widget = QtWidgets.QWidget()
-        self.db_tabWidget.addTab(self.add_widget, "新增")
-        self.db_tabWidget.addTab(self.delete_widget, "刪除")
-        self.db_tabWidget.addTab(self.move_widget, "移動")
-        self.db_tabWidget.addTab(self.rename_widget, "重新命名")
-        self.db_tabWidget.addTab(self.merge_widget, "合併")
-        self.add_widget_ui()
-        self.delete_widget_ui()
-        self.move_widget_ui()
-        self.rename_widget_ui()
-        self.merge_widget_ui()
+        self.select_database_button = self.new_button("選擇資料庫")
+        self.select_database_button.clicked.connect(self.select_database_dialog)
+        
+        # Database Operation Gui
+        self.db_grid_layout = QtWidgets.QGridLayout()
+        self.db_scroll_widget = QtWidgets.QWidget()
+        self.db_scroll_area = QtWidgets.QScrollArea()
+        self.db_scroll_area.setObjectName("DatabaseScrollArea")
+        self.db_scroll_area.setStyleSheet(r"#DatabaseScrollArea {border: 2px solid #aaa;}")
+        self.db_scroll_widget.setLayout(self.db_grid_layout)
+        self.db_scroll_area.setWidget(self.db_scroll_widget)
+        #self.db_scroll_area.setWidgetResizable(True)
+        self.db_scroll_widget.hide()
         db_layout.addWidget(self.database_label)
         db_layout.addWidget(self.select_database_button)
-        db_layout.addWidget(self.db_tabWidget)
+        db_layout.addWidget(self.db_scroll_area)
         db_and_parm_layout.addLayout(db_layout)
         db_and_parm_layout.addSpacing(30)
 
@@ -170,67 +164,70 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(db_and_parm_layout)
 
         # Test Execution Section
-        self.test_button = self.new_button()# "測試執行"
-        layout.addWidget(self.test_button)
+        execution_layout = QtWidgets.QVBoxLayout()
+        execution_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.test_button = self.new_button("測試執行")
+        self.test_button.clicked.connect(self.signal_manager.testRun.emit)
+        self.run_button = self.new_button("確認執行")
+        self.run_button.clicked.connect(self.signal_manager.startProcess.emit)
+        execution_layout.addWidget(self.test_button)
+        execution_layout.addSpacing(20)
+        execution_layout.addWidget(self.run_button)
+        layout.addLayout(execution_layout)
         
         self.signal_manager.requestParams.emit()
         self.signal_manager.requestProgress.emit()
 
-    def add_widget_ui(self):
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-        add_button = self.new_button()
-        add_button.setDefaultAction(QtWidgets.QAction("新增", self))
-        layout.addWidget(add_button)
-        self.add_widget.setLayout(layout)
-        
-    def delete_widget_ui(self):
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-        add_button = self.new_button()
-        add_button.setDefaultAction(QtWidgets.QAction("adf", self))
-        layout.addWidget(add_button)
-        self.delete_widget.setLayout(layout)
-        
-    def move_widget_ui(self):
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-        add_button = self.new_button()
-        add_button.setDefaultAction(QtWidgets.QAction("adsf", self))
-        layout.addWidget(add_button)
-        self.move_widget.setLayout(layout)
-    
-    def rename_widget_ui(self):
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-        add_button = self.new_button()
-        add_button.setDefaultAction(QtWidgets.QAction("faaf", self))
-        layout.addWidget(add_button)
-        self.rename_widget.setLayout(layout)
-        
-    def merge_widget_ui(self):
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
-        add_button = self.new_button()
-        add_button.setDefaultAction(QtWidgets.QAction("eee", self))
-        layout.addWidget(add_button)
-        self.merge_widget.setLayout(layout)
-        
-    def new_button(self):
-        btn = QtWidgets.QToolButton(self)
-        #btn.setText(text)
-        btn.setAutoRaise(True)
+    def new_button(self, text=""):
+        btn = QtWidgets.QPushButton(self)
         btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         btn.setFixedHeight(40)
         btn.setFixedWidth(150)
         btn.setFont(MyFont())
+        btn.setText(text)
         return btn
     
+    def resizeEvent(self, event):
+        self.resize_database_widget()
+    
+    @QtCore.pyqtSlot(str, QtGui.QPixmap)
+    def update_database_member_img(self, name, pixmap):
+        if name == "": # all images are sent
+            self.resize_database_widget()
+            self.db_scroll_widget.show()
+            return
+        
+        print(f"Update database member img: {name}")
+        if name not in self.member_name_imgs:
+            self.member_name_imgs[name] = []
+            self.member_name_imgs[name].append(pixmap)
+        else:
+            self.member_name_imgs[name].append(pixmap)
+        
+    def resize_database_widget(self):
+        cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
+        for _ in range(self.db_grid_layout.count()):
+            self.db_grid_layout.takeAt(0).widget().deleteLater()
+        i_row = 0
+        i_col = 0
+        for name, imgs in self.member_name_imgs.items():
+            member_img = QtWidgets.QLabel()
+            member_img.setPixmap(imgs[0].scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+            member_img.setStyleSheet("border :4px solid #607cff;")
+            member_img.setFixedSize(100, 100)
+            member_img.setToolTip(name)
+            self.db_grid_layout.addWidget(member_img, i_row, i_col)
+            i_col += 1
+            if i_col == cols:
+                i_col = 0
+                i_row += 1
+        
+        hei = 110*math.ceil(len(self.member_name_imgs)/cols)
+        if hei < self.db_scroll_area.size().height():
+            self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-5, hei))
+        else:
+            self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-25, hei))
+        
     def select_database_dialog(self):
         database_file_dialog = QtWidgets.QFileDialog(self)
         database_file_dialog.setNameFilter("Database Folder (*)")
@@ -238,7 +235,11 @@ class MainWindow(QtWidgets.QWidget):
         if database_file_dialog.exec_():
             file_path = database_file_dialog.selectedFiles()[0]
             if file_path:
+                for _ in range(len(self.member_name_imgs)):
+                    self.db_grid_layout.takeAt(0).widget().deleteLater()
+                self.member_name_imgs = {}
                 self.signal_manager.selectedDatabase.emit(file_path)
+                self.signal_manager.requestAllMemberImg.emit()
     
     def alter_param(self):
         name = self.param_combo.currentText()
@@ -271,30 +272,22 @@ class MainWindow(QtWidgets.QWidget):
         else:
             self.video_area.takeAt(1).widget().deleteLater()
             self.video_preview = VideoPlayer(self, file_path)
-            self.video_preview.setFixedSize(640, 360)
             self.video_area.addWidget(self.video_preview)
             self.have_video_preview = True
             
             control_layout = QtWidgets.QHBoxLayout()
             control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.video_rewind_button = self.new_button()
-            self.video_rewind_button.setDefaultAction(QtWidgets.QAction("後退", self, triggered=lambda: self.video_preview.rewind(5)))
-            self.video_pause_button = self.new_button()
-            self.video_pause_button.setDefaultAction(QtWidgets.QAction("播放", self, triggered=lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停"))))
-            self.video_forward_button = self.new_button()
-            self.video_forward_button.setDefaultAction(QtWidgets.QAction("前進", self, triggered=lambda: self.video_preview.forward(5)))
+            self.video_rewind_button = self.new_button("後退")
+            self.video_rewind_button.clicked.connect(lambda: self.video_preview.rewind(5))
+            self.video_pause_button = self.new_button("播放")
+            self.video_pause_button.clicked.connect(lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停")))
+            self.video_forward_button = self.new_button("前進")
+            self.video_forward_button.clicked.connect(lambda: self.video_preview.forward(5))
             control_layout.addWidget(self.video_rewind_button)
             control_layout.addWidget(self.video_pause_button)
             control_layout.addWidget(self.video_forward_button)
             self.video_area.addLayout(control_layout)
         self.video_preview.play()
-        
-        #self.signal_manager.UpdatePrevewImg.connect(self.update_video_preview)
-        #self.signal_manager.requestPreviewImg.emit()
-        
-    @QtCore.pyqtSlot(QtGui.QPixmap)
-    def update_video_preview(self, pixmap):
-        self.video_preview.setPixmap(pixmap.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
         
     def open_select_video_dialog(self):
         video_file_dialog = QtWidgets.QFileDialog(self)
@@ -319,6 +312,7 @@ class MainWindow(QtWidgets.QWidget):
         error_dialog.exec_()
         
     def closeEvent(self, event):
+        self.signal_manager.terminateProcess.emit()
         if self.have_video_preview:
             self.video_preview.reset()
         event.accept()
@@ -335,11 +329,12 @@ class Backend(QtCore.QObject):
         self.signal_manager.selectedDatabase.connect(self.set_database_path)
         self.signal_manager.testRun.connect(self.test_run)
         self.signal_manager.startProcess.connect(self.run)
-        self.signal_manager.requestPreviewImg.connect(self.update_preview_img)
+        self.signal_manager.terminateProcess.connect(self.terminateProcess)
         self.signal_manager.alterParam.connect(self.set_param)
         self.signal_manager.requestParams.connect(self.get_params)
         self.signal_manager.requestProgress.connect(self.update_progress)
         self.signal_manager.recordOverwriteConfirmed.connect(self.clear_record_and_run)
+        self.signal_manager.requestAllMemberImg.connect(self.get_all_member_img)
         
         # parameters from record, if not recorded, use default
         for key, _ in default_params.items():
@@ -350,28 +345,41 @@ class Backend(QtCore.QObject):
         self.vm = VideoManager()
         
         self.running = False
+        self.test_running = False
+        self.have_face_database = False
+        self.transcribe_thread = None
+        self.main_thread = None
+        self.test_run_thread = None
+        
+        self.cur_process = ""
+        self.cur_progress = 0
+        self.total_progress = 100
     
     @QtCore.pyqtSlot()
     def run(self):
-        if self.record.is_ready:
-            self.signal_manager.recordOverwrite.emit()
-            return
-            
         if not self.vm.is_ready:
             self.signal_manager.errorOccor.emit("Please select a video.")
             return
         if self.running:
-            self.signal_manager.errorOccor.emit("The process is already running.")
+            self.signal_manager.errorOccor.emit("Running process is already running.")
+            return
+        if self.test_running:
+            self.signal_manager.errorOccor.emit("正在測試執行，請終止之後再試。")
             return
         if self.params['det_size'].format(r"\d+x\d+") is None:
             self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
             return
-        
         det_size = self.params['det_size'].format(r"\d+x\d+")
         det_size = tuple(map(int, det_size.split("x")))
         if det_size[0] < 0 or det_size[1] < 0:
             self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
-            
+        if not self.have_face_database:
+            self.signal_manager.errorOccor.emit("Please select a database.")
+            return
+        if self.record.is_ready:
+            self.signal_manager.recordOverwrite.emit()
+            return
+        
         try:
             self.fr = FaceRecognizer(det_size=det_size)
             self.fdm.set_face_recognizer(self.fr)
@@ -385,41 +393,49 @@ class Backend(QtCore.QObject):
         self.running = True
         
         self.cur_process = "Transcribing"
-        self.sm.transcribe(self.vm.get_video_path())
+        self.cur_progress = 0
+        self.total_progress = 100
+        self.update_progress()
+        self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
+        self.transcribe_thread.start()
         
-        while self.running:
-            try:
-                frame = self.vm.next_frame()
-            except Exception as e:
-                self.signal_manager.errorOccor.emit(str(e))
-                self.running = False
-                break
-            faces = self.fr.get(frame)
-            bboxes = []
-            for i in range(len(faces)):
-                bbox = faces[i].bbox.astype(int).tolist()
-                bboxes.append(bbox)
-            names = []
-            for i in range(len(faces)):
-                name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=True)
-                names.append(name)
+        def main_run():
+            while self.running:
+                try:
+                    frame = self.vm.next_frame()
+                except Exception as e:
+                    self.signal_manager.errorOccor.emit(str(e))
+                    self.running = False
+                    break
+                faces = self.fr.get(frame)
+                bboxes = []
+                for i in range(len(faces)):
+                    bbox = faces[i].bbox.astype(int).tolist()
+                    bboxes.append(bbox)
+                names = []
+                for i in range(len(faces)):
+                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=True)
+                    names.append(name)
+                    
+                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
+                statuses = []
+                for i in range(len(faces)):
+                    status = self.fa.is_talking(names[i])
+                    statuses.append(status)
+                    
+                time_s = self.vm.get_time()
                 
-            self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
-            statuses = []
-            for i in range(len(faces)):
-                status = self.fa.is_talking(names[i])
-                statuses.append(status)
+                self.record.write_data(time_s, bboxes, names, statuses)
+                #print(f"Recorded at {time_s} s")
+                #print(f"bboxes: {bboxes}")
+                #print(f"Names: {names}")
+                #print(f"Statuses: {statuses}")
                 
-            time_s = self.vm.get_time()
-            
-            self.record.write_data(time_s, bboxes, names, statuses)
-            #print(f"Recorded at {time_s} s")
-            #print(f"bboxes: {bboxes}")
-            #print(f"Names: {names}")
-            #print(f"Statuses: {statuses}")
-            
-        self.running = False
-        self.save_record()
+            self.running = False
+            self.save_record()
+        
+        self.main_thread = threading.Thread(target=main_run)
+        self.main_thread.start()
         
     @QtCore.pyqtSlot()
     def clear_record_and_run(self):
@@ -429,26 +445,31 @@ class Backend(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def set_video_path(self, video_path: str):
         print(f"Set video path: {video_path}")
-        try:
-            self.vm.load_video(video_path)
-        except Exception as e:
-            self.signal_manager.errorOccor.emit(str(e))
+        def func():
+            try:
+                self.vm.load_video(video_path)
+            except Exception as e:
+                self.signal_manager.errorOccor.emit(str(e))
+        threading.Thread(target=func).start()
      
     @QtCore.pyqtSlot(str)
     def set_database_path(self, database_path):
-        print(f"Set database path: {database_path}")
         self.fdm = FaceDatabaseManager(database_path)
+        self.have_face_database = True
+        print(f"Set database path: {database_path}")
     
     @QtCore.pyqtSlot()
-    def update_preview_img(self):
-        try:
-            frame = self.vm.get_frame()
-        except Exception as e:
-            self.signal_manager.errorOccor.emit(str(e))
+    def get_all_member_img(self):
+        if not self.have_face_database:
+            self.signal_manager.errorOccor.emit("Please select a database.")
             return
         
-        pixmap = cv2_to_pixmap(frame)
-        self.signal_manager.UpdatePrevewImg.emit(pixmap)
+        names = self.fdm.get_name_list()
+        for name in names:
+            imgs = self.fdm.get_images_by_name(name)
+            for img in imgs:
+                self.signal_manager.returnedMemberImg.emit(name, cv2_to_pixmap(img))
+        self.signal_manager.returnedMemberImg.emit("", QtGui.QPixmap()) # send a signal to tell all images are sent
     
     def get_params(self):
         for key, _ in default_params.items():
@@ -478,7 +499,104 @@ class Backend(QtCore.QObject):
             self.params[param_name] = value
         
     def test_run(self):
-        print(f"Run with parameters: {self.det_size}, {self.param2}, {self.param3}")
+        if not self.vm.is_ready:
+            self.signal_manager.errorOccor.emit("Please select a video.")
+            return
+        if self.running:
+            self.signal_manager.errorOccor.emit("Running process is already running.")
+            return
+        if self.test_running:
+            self.signal_manager.errorOccor.emit("Test running process is already running.")
+            return
+        if not self.have_face_database:
+            self.signal_manager.errorOccor.emit("Please select a database.")
+            return
+        if self.params['det_size'].format(r"\d+x\d+") is None:
+            self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
+            return
+        
+        det_size = self.params['det_size'].format(r"\d+x\d+")
+        det_size = tuple(map(int, det_size.split("x")))
+        if det_size[0] < 0 or det_size[1] < 0:
+            self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
+            return
+            
+        print(f"Test running with parameters: {self.params}")
+        try:
+            self.fr = FaceRecognizer(det_size=det_size)
+            self.fdm.set_face_recognizer(self.fr)
+            self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
+            self.fa = FaceAnalyzer(value_window_size=int(self.params['value_window_size']))
+            self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
+        except Exception as e:
+            self.signal_manager.errorOccor.emit(str(e))
+            return
+        
+        self.test_running = True
+        
+        #self.cur_process = "Transcribing"
+        #self.cur_progress = 0
+        #self.total_progress = 100
+        #self.update_progress()
+        #self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
+        #self.transcribe_thread.start()
+        
+        def test_run():
+            while self.test_running:
+                try:
+                    frame = self.vm.next_frame()
+                except Exception as e:
+                    self.signal_manager.errorOccor.emit(str(e))
+                    self.test_running = False
+                    break
+                
+                frame = cv2.resize(frame, (1280, 720)) # 16:9
+                faces = self.fr.get(frame)
+                bboxes = []
+                for i in range(len(faces)):
+                    bbox = faces[i].bbox.astype(int).tolist()
+                    bboxes.append(bbox)
+                names = []
+                for i in range(len(faces)):
+                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False)
+                    names.append(name)
+                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
+                statuses = []
+                for i in range(len(faces)):
+                    status = self.fa.is_talking(names[i])
+                    statuses.append(status)
+                    
+                time_s = self.vm.get_time()
+                
+                #print(f"Recorded at {time_s} s")
+                #print(f"bboxes: {bboxes}")
+                #print(f"Names: {names}")
+                #print(f"Statuses: {statuses}")
+                
+                # putting informations on the frame using cv2
+                for i in range(len(faces)):
+                    cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
+                    frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
+                    frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
+                cv2.imshow("Test Running", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+                
+            self.test_running = False
+        
+        self.test_run_thread = threading.Thread(target=test_run)
+        self.test_run_thread.start()
+        
+    @QtCore.pyqtSlot()
+    def terminateProcess(self):
+        self.running = False
+        self.test_running = False
+        if self.test_run_thread:
+            self.test_run_thread.join()
+        if self.transcribe_thread:
+            self.transcribe_thread.join()
+        if self.main_thread:
+            self.main_thread.join()
         
     def save_record(self):
         for key, _ in default_params.items():
@@ -489,13 +607,21 @@ class ErrorDialog(QtWidgets.QDialog):
     def __init__(self, message):
         super().__init__()
         self.setWindowTitle("Error")
-        self.setFixedSize(300, 100)
+        self.setMinimumSize(300, 150)
         
         layout = QtWidgets.QVBoxLayout(self)
         label = QtWidgets.QLabel(message, self)
+        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         label.setFont(MyFont())
         layout.addWidget(label)
-        
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        btn = QtWidgets.QPushButton("確認", self)
+        btn.setFixedWidth(100)
+        btn.clicked.connect(self.close)
+        btn.setFont(MyFont())
+        btn_layout.addWidget(btn)
+        layout.addLayout(btn_layout)
         self.setLayout(layout)
 
 class MyFont(QtGui.QFont):
@@ -515,15 +641,8 @@ class FileDropArea(QtWidgets.QWidget):
         self.setAcceptDrops(True)
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(640, 360)
-        #self.setStyleSheet('''
-        #    QWidget {
-        #        border: 2px dashed #aaa;
-        #        border-radius: 20px;
-        #        font-size: 16px;
-        #        color: #000;
-        #        background-color: #FFF;
-        #    }
-        #''')
+        self.setStyleSheet("border: 2px dashed #aaa;\
+                            border-radius: 20px;")
         self.label = QtWidgets.QLabel("拖放檔案至此，或點擊選取檔案", self)
         self.label.setFont(MyFont())
         self.label.setAlignment(QtCore.Qt.AlignCenter)
@@ -538,7 +657,10 @@ class FileDropArea(QtWidgets.QWidget):
 
     def dropEvent(self, event: QtGui.QDropEvent):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
-        self.label.setText(f"已選擇檔案:\n" + "\n".join(files))
+        if len(files) > 1:
+            self.parent().signal_manager.errorOccor.emit("Please only select one video file.")
+            return
+        self.parent().signal_manager.selectedVideo.emit(files[0])
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.LeftButton:
@@ -553,7 +675,10 @@ class VideoPlayer(QtWidgets.QLabel):
         self.play_thread = None
         self.load(video_path)
         self.setFixedSize(640, 360)
-        self.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+    
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.parent().video_pause_button.click()
         
     def update(self, img):
         self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
@@ -612,11 +737,11 @@ class VideoPlayer(QtWidgets.QLabel):
         
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    with open("Incrypt.qss", "r") as f:
+    with open("Darkeum.qss", "r") as f:
         app.setStyleSheet(f.read())
     signal_manager = SignalManager()
     record = Record(store_base='records')
     backend = Backend(signal_manager, record)
-    MainWindow = MainWindow(signal_manager)
-    MainWindow.show()
+    main = MainWindow(signal_manager)
+    main.show()
     sys.exit(app.exec_())

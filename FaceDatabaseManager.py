@@ -67,6 +67,17 @@ class FaceDatabaseManager:
             return None
         return self.names
     
+    def get_images_by_name(self, name):
+        if name not in self.names:
+            print(f'FaceDatabaseManager::get_images_by_name: Name "{name}" is not in the database.')
+            return None
+        
+        images = []
+        files = glob.glob(os.path.join(self.database_root, name, '*.png')) + glob.glob(os.path.join(self.database_root, name, '*.jpg'))
+        for file in files:
+            images.append(cv2.imread(file))
+        return images
+    
     def get_name_embeddings_dict(self):
         return self.name_embeddings_dict
     
