@@ -3,11 +3,11 @@ import math
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 import threading
-import time
 
 from FaceRecognizer import FaceRecognizer
 from FaceDatabaseManager import FaceDatabaseManager
 from FaceAnalyzer import FaceAnalyzer
+from FrontEndWidgets import *
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
 from Record import Record
@@ -20,13 +20,6 @@ default_params = {
     "new_member_prefix": "member_",
     "value_window_size": "20"
 }
-
-def cv2_to_pixmap(cv2_img):
-    cv2_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
-    height, width, channel = cv2_img.shape
-    bytesPerLine = channel * width
-    qImg = QtGui.QImage(cv2_img.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888)
-    return QtGui.QPixmap.fromImage(qImg)
       
 class SignalManager(QtCore.QObject):
     # Define signals
@@ -603,138 +596,6 @@ class Backend(QtCore.QObject):
             self.record.set_parameter(key, self.params[key])
         self.record.export()
 
-class ErrorDialog(QtWidgets.QDialog):
-    def __init__(self, message):
-        super().__init__()
-        self.setWindowTitle("Error")
-        self.setMinimumSize(300, 150)
-        
-        layout = QtWidgets.QVBoxLayout(self)
-        label = QtWidgets.QLabel(message, self)
-        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        label.setFont(MyFont())
-        layout.addWidget(label)
-        btn_layout = QtWidgets.QHBoxLayout()
-        btn_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        btn = QtWidgets.QPushButton("確認", self)
-        btn.setFixedWidth(100)
-        btn.clicked.connect(self.close)
-        btn.setFont(MyFont())
-        btn_layout.addWidget(btn)
-        layout.addLayout(btn_layout)
-        self.setLayout(layout)
-
-class MyFont(QtGui.QFont):
-    def __init__(self):
-        super().__init__()
-        self.setFamily("微軟正黑體")
-        self.setPointSize(12)
-        self.setBold(True)
-        self.setWeight(70)
-        self.setItalic(False)
-
-class FileDropArea(QtWidgets.QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        # 設置區域樣式
-        self.setAcceptDrops(True)
-        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(640, 360)
-        self.setStyleSheet("border: 2px dashed #aaa;\
-                            border-radius: 20px;")
-        self.label = QtWidgets.QLabel("拖放檔案至此，或點擊選取檔案", self)
-        self.label.setFont(MyFont())
-        self.label.setAlignment(QtCore.Qt.AlignCenter)
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(self.label)
-        self.setLayout(layout)
-    
-    def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event: QtGui.QDropEvent):
-        files = [url.toLocalFile() for url in event.mimeData().urls()]
-        if len(files) > 1:
-            self.parent().signal_manager.errorOccor.emit("Please only select one video file.")
-            return
-        self.parent().signal_manager.selectedVideo.emit(files[0])
-
-    def mousePressEvent(self, event: QtGui.QMouseEvent):
-        if event.button() == QtCore.Qt.LeftButton:
-            self.parent().open_select_video_dialog()
-
-class VideoPlayer(QtWidgets.QLabel):
-    def __init__(self, parent=None, video_path=None):
-        super().__init__(parent)
-        self.is_paused = True
-        self.quit_loop = False
-        self.cap = None
-        self.play_thread = None
-        self.load(video_path)
-        self.setFixedSize(640, 360)
-    
-    def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
-            self.parent().video_pause_button.click()
-        
-    def update(self, img):
-        self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
-
-    def load(self, path):
-        self.cap = cv2.VideoCapture(path)
-        self.update(cv2_to_pixmap(self.cap.read()[1]))
-
-    def reset(self):
-        self.quit_loop = True
-        self.play_thread.join()
-        self.cap.release()
-
-    def pause(self):
-        self.is_paused = not self.is_paused
-
-    def forward(self, seconds):
-        self.is_paused = True
-        time.sleep(0.1)
-        self.cap.set(cv2.CAP_PROP_POS_MSEC, self.cap.get(cv2.CAP_PROP_POS_MSEC) + seconds*1000)
-        self.is_paused = False
-    
-    def rewind(self, seconds):
-        self.is_paused = True
-        time.sleep(0.1)
-        self.cap.set(cv2.CAP_PROP_POS_MSEC, self.cap.get(cv2.CAP_PROP_POS_MSEC) - seconds*1000)
-        self.is_paused = False
-    
-    def set_time(self, seconds):
-        self.cap.set(cv2.CAP_PROP_POS_MSEC, seconds*1000)
-        
-    def get_time(self):
-        return self.cap.get(cv2.CAP_PROP_POS_MSEC)/1000
-    
-    def get_total_time(self):
-        return self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
-    
-    def play(self):
-        delay = 1.0/self.cap.get(cv2.CAP_PROP_FPS)
-        def func():
-            while True:
-                if self.quit_loop:
-                    self.quit_loop = False
-                    break
-                if not self.is_paused:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        self.is_paused = True
-                        break
-                    pFrame = cv2_to_pixmap(frame)
-                    self.update(pFrame)
-                time.sleep(delay)
-        
-        self.play_thread = threading.Thread(target=func)
-        self.play_thread.start()
-        
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     with open("Darkeum.qss", "r") as f:
