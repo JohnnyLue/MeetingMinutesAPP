@@ -3,6 +3,7 @@ import math
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 import threading
+import configparser
 
 from FaceRecognizer import FaceRecognizer
 from FaceDatabaseManager import FaceDatabaseManager
@@ -13,14 +14,11 @@ from VideoManager import VideoManager
 from Record import Record
 from Utils import *
 
-default_params = {
-    "det_size": "480x480",
-    "whisper_model": "small",
-    "language": "zh",
-    "new_member_prefix": "member_",
-    "value_window_size": "20"
-}
-      
+config = configparser.ConfigParser()
+config.read("config.ini")
+default_params = config['DEFAULT']
+param_aliases = config['ALIASES']
+
 class SignalManager(QtCore.QObject):
     # Define signals
     requestImgByName = QtCore.pyqtSignal(str) # 要求照片: 名字
@@ -31,7 +29,7 @@ class SignalManager(QtCore.QObject):
     selectedDatabase = QtCore.pyqtSignal(str) # 選擇資料庫: 
     
     requestParams = QtCore.pyqtSignal() # 要求參數(全部)
-    updateParam = QtCore.pyqtSignal(str, str) # 更新顯示參數: 參數名, 值
+    updateParam = QtCore.pyqtSignal(str, list) # 更新顯示參數: 參數名, 值 (可能是list)
     alterParam = QtCore.pyqtSignal(str, str) # 修改參數: 參數名, 值
     
     requestProgress = QtCore.pyqtSignal() # 要求更新進度
@@ -54,6 +52,7 @@ class MainWindow(QtWidgets.QWidget):
         self.signal_manager.recordOverwrite.connect(self.open_check_overwrite_dialog)
         self.signal_manager.selectedVideo.connect(self.switch_video_preview)
         self.signal_manager.returnedMemberImg.connect(self.update_database_member_img)
+        self.signal_manager.updateParam.connect(self.recieved_param_value)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
@@ -64,13 +63,16 @@ class MainWindow(QtWidgets.QWidget):
         self.have_video_preview = False
         self.member_name_imgs = {}
         
+        self.signal_manager.requestParams.emit()
+        self.signal_manager.requestProgress.emit()
+        
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
 
         video_and_progress_layout = QtWidgets.QVBoxLayout()
         # Video Upload Section
         self.video_area = QtWidgets.QVBoxLayout()
-        self.select_video_button = self.new_button("選擇影片")
+        self.select_video_button = new_button("選擇影片")
         self.select_video_button.clicked.connect(self.open_select_video_dialog)
         self.video_drop_area = FileDropArea(self)
         self.video_area.addWidget(self.select_video_button)
@@ -108,9 +110,7 @@ class MainWindow(QtWidgets.QWidget):
         db_layout = QtWidgets.QVBoxLayout()
         db_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         db_layout.setSpacing(10)
-        self.database_label = QtWidgets.QLabel("資料庫操作:", self)
-        self.database_label.setFont(MyFont())
-        self.select_database_button = self.new_button("選擇資料庫")
+        self.select_database_button = new_button("選擇資料庫")
         self.select_database_button.clicked.connect(self.select_database_dialog)
         
         # Database Operation Gui
@@ -121,9 +121,7 @@ class MainWindow(QtWidgets.QWidget):
         self.db_scroll_area.setStyleSheet(r"#DatabaseScrollArea {border: 2px solid #aaa;}")
         self.db_scroll_widget.setLayout(self.db_grid_layout)
         self.db_scroll_area.setWidget(self.db_scroll_widget)
-        #self.db_scroll_area.setWidgetResizable(True)
         self.db_scroll_widget.hide()
-        db_layout.addWidget(self.database_label)
         db_layout.addWidget(self.select_database_button)
         db_layout.addWidget(self.db_scroll_area)
         db_and_parm_layout.addLayout(db_layout)
@@ -131,27 +129,13 @@ class MainWindow(QtWidgets.QWidget):
 
         # Parameter Adjustment Section
         param_layout = QtWidgets.QVBoxLayout()
-        param_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignBottom)
+        param_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        param_label = QtWidgets.QLabel("參數調整:", self)
+        param_label.setFont(MyFont())
+        param_layout.addWidget(param_label)
+        self.param_panel = ParamPanel(self)
+        param_layout.addWidget(self.param_panel)
         
-        self.param_label = QtWidgets.QLabel("參數調整:")
-        self.param_label.setFont(MyFont())
-        
-        # Create a combo box for selecting parameters to adjust
-        self.param_combo = QtWidgets.QComboBox()
-        self.param_combo.setFont(MyFont())
-        
-        self.param_input = QtWidgets.QLineEdit()
-        self.param_input.setFont(MyFont())
-        self.param_input.setFixedWidth(160)
-        self.param_input.setPlaceholderText("")
-        
-        # Connect the signal of combo box to input box
-        self.param_combo.currentTextChanged.connect(self.alter_param)
-        self.signal_manager.updateParam.connect(self.update_param_value)
-        
-        param_layout.addWidget(self.param_label)
-        param_layout.addWidget(self.param_combo)
-        param_layout.addWidget(self.param_input)
         db_and_parm_layout.addLayout(param_layout)
         
         layout.addLayout(db_and_parm_layout)
@@ -159,26 +143,14 @@ class MainWindow(QtWidgets.QWidget):
         # Test Execution Section
         execution_layout = QtWidgets.QVBoxLayout()
         execution_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.test_button = self.new_button("測試執行")
+        self.test_button = new_button("測試執行")
         self.test_button.clicked.connect(self.signal_manager.testRun.emit)
-        self.run_button = self.new_button("確認執行")
+        self.run_button = new_button("確認執行")
         self.run_button.clicked.connect(self.signal_manager.startProcess.emit)
         execution_layout.addWidget(self.test_button)
         execution_layout.addSpacing(20)
         execution_layout.addWidget(self.run_button)
         layout.addLayout(execution_layout)
-        
-        self.signal_manager.requestParams.emit()
-        self.signal_manager.requestProgress.emit()
-
-    def new_button(self, text=""):
-        btn = QtWidgets.QPushButton(self)
-        btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(40)
-        btn.setFixedWidth(150)
-        btn.setFont(MyFont())
-        btn.setText(text)
-        return btn
     
     def resizeEvent(self, event):
         self.resize_database_widget()
@@ -205,10 +177,12 @@ class MainWindow(QtWidgets.QWidget):
         i_col = 0
         for name, imgs in self.member_name_imgs.items():
             member_img = QtWidgets.QLabel()
+            member_img.setObjectName('member_img')
             member_img.setPixmap(imgs[0].scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
-            member_img.setStyleSheet("border :4px solid #607cff;")
+            member_img.setStyleSheet("#member_img {border :4px solid #607cff;}")
             member_img.setFixedSize(100, 100)
             member_img.setToolTip(name)
+            member_img.mousePressEvent = lambda event, name=name: self.pop_member_detail_window(name)
             self.db_grid_layout.addWidget(member_img, i_row, i_col)
             i_col += 1
             if i_col == cols:
@@ -220,6 +194,12 @@ class MainWindow(QtWidgets.QWidget):
             self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-5, hei))
         else:
             self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-25, hei))
+        
+    def pop_member_detail_window(self, name):
+        self.member_detail_window = MemberDetailWindow(self)
+        self.member_detail_window.set_name(name)
+        self.member_detail_window.set_member_imgs(self.member_name_imgs[name])
+        self.member_detail_window.exec_()
         
     def select_database_dialog(self):
         database_file_dialog = QtWidgets.QFileDialog(self)
@@ -234,10 +214,7 @@ class MainWindow(QtWidgets.QWidget):
                 self.signal_manager.selectedDatabase.emit(file_path)
                 self.signal_manager.requestAllMemberImg.emit()
     
-    def alter_param(self):
-        name = self.param_combo.currentText()
-        value = self.param_combo.itemData(self.param_combo.currentIndex())
-        self.param_input.setText(value)
+    def alter_param(self, name, value):
         self.signal_manager.alterParam.emit(name, value)
     
     @QtCore.pyqtSlot(str, int, int)
@@ -252,10 +229,17 @@ class MainWindow(QtWidgets.QWidget):
         self.progress_bar.setValue(int(progress/total*100))
         self.progress_percent.setText(f"{progress}/{total}")
         
-    @QtCore.pyqtSlot(str, str)
-    def update_param_value(self, name, value):
-        self.param_combo.addItem(name)
-        self.param_combo.setItemData(self.param_combo.count()-1, value)
+    @QtCore.pyqtSlot(str, list)
+    def recieved_param_value(self, name, value_list):
+        if name is None or value_list is None:
+            return
+        if len(value_list) == 0:
+            return
+        if len(value_list)>1:
+            self.param_panel.add_param_widget_choise_value(name, value_list)
+        else:
+            self.param_panel.add_param_widget_custom_value(name, value_list[0])
+        self.param_panel.update()
 
     @QtCore.pyqtSlot(str)
     def switch_video_preview(self, file_path: str):
@@ -270,11 +254,11 @@ class MainWindow(QtWidgets.QWidget):
             
             control_layout = QtWidgets.QHBoxLayout()
             control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.video_rewind_button = self.new_button("後退")
+            self.video_rewind_button = new_button("後退")
             self.video_rewind_button.clicked.connect(lambda: self.video_preview.rewind(5))
-            self.video_pause_button = self.new_button("播放")
+            self.video_pause_button = new_button("播放")
             self.video_pause_button.clicked.connect(lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停")))
-            self.video_forward_button = self.new_button("前進")
+            self.video_forward_button = new_button("前進")
             self.video_forward_button.clicked.connect(lambda: self.video_preview.forward(5))
             control_layout.addWidget(self.video_rewind_button)
             control_layout.addWidget(self.video_pause_button)
@@ -466,10 +450,25 @@ class Backend(QtCore.QObject):
     
     def get_params(self):
         for key, _ in default_params.items():
-            try:
-                self.signal_manager.updateParam.emit(key, self.params[key])
-            except:
-                self.signal_manager.updateParam.emit(key, default_params[key])
+            _key = key
+            if _key in param_aliases:
+                _key = param_aliases[key]
+            if key in self.params:
+                _value = self.params[key]
+                if _value.count(",")>0:
+                    value_list = _value.split(",")
+                    value_list = [param_aliases[x.strip()] if x.strip() in param_aliases else x.strip() for x in value_list]
+                    self.signal_manager.updateParam.emit(_key, value_list)
+                else:
+                    self.signal_manager.updateParam.emit(_key, [_value])
+            else:
+                _value = default_params[key]
+                if _value.count(","):
+                    value_list = _value.split(",")
+                    value_list = [param_aliases[x.strip()] for x in value_list]
+                    self.signal_manager.updateParam.emit(_key, value_list)
+                else:
+                    self.signal_manager.updateParam.emit(_key, [_value])
     
     def update_progress(self):
         '''
@@ -481,15 +480,16 @@ class Backend(QtCore.QObject):
             self.signal_manager.updateProgress.emit(self.cur_process, self.cur_progress, self.total_progress)
     
     @QtCore.pyqtSlot(str, str)
-    def set_param(self, param_name, value):
-        change_to_default = False
-        if value is None:
-            change_to_default = True
-        
-        if change_to_default:
-            self.params[param_name] = default_params[param_name]
+    def set_param(self, param_name_alias, value_or_alias):
+        inv_aliases = {v: k for k, v in param_aliases.items()}
+        name = inv_aliases[param_name_alias] if param_name_alias in inv_aliases else param_name_alias
+        if value_or_alias is None:
+            self.params[name] = default_params[name]
+            print(f"Set parameter: {name} = {default_params[name]}")
         else:
-            self.params[param_name] = value
+            value = inv_aliases[value_or_alias] if value_or_alias in inv_aliases else value_or_alias
+            self.params[name] = value
+            print(f"Set parameter: {name} = {value}")
         
     def test_run(self):
         if not self.vm.is_ready:
