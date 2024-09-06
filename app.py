@@ -1,6 +1,7 @@
 import cv2
 import math
 from PyQt5 import QtWidgets, QtCore, QtGui
+import socket
 import sys
 import threading
 import configparser
@@ -18,6 +19,112 @@ config = configparser.ConfigParser()
 config.read("config.ini")
 default_params = config['DEFAULT']
 param_aliases = config['ALIASES']
+
+
+class Process():
+    def run(self, video_path, script_path, database_dir, output_dir, record_path, model_name, language, prefix, resolution):
+        init_time = time.monotonic()
+        try:
+            det_size = resolution.split('x')
+            record = Record(record_path, output_dir)
+            fr = FaceRecognizer(det_size=(int(det_size[0]), int(det_size[1]))) # 偵測不到人臉可以改看看
+            fdm = FaceDatabaseManager(database_dir, fr, new_member_prefix=prefix)
+            fa = FaceAnalyzer()
+            vm = VideoManager(video_path=video_path)
+            sm = ScriptManager(model_name, language)
+        except Exception as e:
+            print(e)
+            return
+                
+        init_time = time.monotonic() - init_time
+        print(f'init time: {init_time} s')
+        
+        if script_path is not None:
+            try:
+                # 載入字幕
+                sm.load_script_file(script_path)
+            except:
+                # 生成字幕
+                script_time = time.monotonic()
+                sm.transcribe(vm.get_video_path())
+                sm.save_script_file('script.txt')
+                script_time = time.monotonic() - script_time
+                print(f'script time: {script_time} s')
+        else:
+            # 生成字幕
+            script_time = time.monotonic()
+            sm.transcribe(vm.get_video_path())
+            sm.save_script_file('script.txt')
+            script_time = time.monotonic() - script_time
+            print(f'script time: {script_time} s')
+
+        #fdm.generate_embeddings(True) # 重新生成臉部特徵
+        start_time = time.monotonic() # 算fps用的
+        counter = 0 # 算fps用的
+        paused = False
+        while not vm.is_end():
+            get_frame_time = time.monotonic()
+            if not paused:
+                frame = vm.next_frame()
+            else:
+                frame = vm.get_frame() # 暫停時的畫面
+            if frame is None:
+                break
+            frame = cv2.resize(frame, (1280, 720)) # 16:9
+            get_frame_time = time.monotonic() - get_frame_time
+            print(f'get frame time: {get_frame_time}s')
+            
+            # 偵測、分析臉部
+            detect_time = time.monotonic()
+            faces = fr.get_faces(frame)
+            bboxes = []
+            for i in range(len(faces)):
+                bbox = faces[i].bbox.astype(int).tolist()
+                bboxes.append(bbox)
+            names = []
+            for i in range(len(faces)):
+                name = fr.get_name(frame, faces[i], fdm, create_new_face=False)
+                names.append(name)
+            fa.update(zip(names, [fr.get_landmark(x) for x in faces]))
+            statuses = []
+            for i in range(len(faces)):
+                status = fa.is_talking(names[i])
+                statuses.append(status)
+            detect_time = time.monotonic() - detect_time
+            print(f'detect time: {detect_time}s')
+            
+            # 顯示
+            show_time = time.monotonic()
+            for i in range(len(faces)):
+                cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
+                frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
+                frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
+                record.write_data(vm.get_time(), bboxes, names, statuses)
+                cv2.imshow("Test Running", frame)
+            show_time = time.monotonic() - show_time
+            print(f'show time: {show_time}s')
+            
+            # 計算fps
+            counter += 1
+            if counter % 30 == 0:
+                now_time = time.monotonic()
+                fps = 30 / (now_time - start_time)
+                start_time = now_time
+                print(f'fps: {fps}')
+                
+            # 暫停
+            if cv2.waitKey(1) & 0xFF == ord(' '):
+                paused = not paused
+                print('pause')
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            if cv2.waitKey(1) & 0xFF == ord('a'):
+                vm.forward(120)
+            if cv2.waitKey(1) & 0xFF == ord('d'):
+                vm.rewind(120)
+        cv2.destroyAllWindows()
+
+test_run_p = Process()
 
 class SignalManager(QtCore.QObject):
     # Define signals
@@ -361,7 +468,7 @@ class Backend(QtCore.QObject):
             self.fr = FaceRecognizer(det_size=det_size)
             self.fdm.set_face_recognizer(self.fr)
             self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-            self.fa = FaceAnalyzer(value_window_size=int(self.params['value_window_size']))
+            self.fa = FaceAnalyzer()
             self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
         except Exception as e:
             self.signal_manager.errorOccor.emit(str(e))
@@ -453,22 +560,21 @@ class Backend(QtCore.QObject):
             _key = key
             if _key in param_aliases:
                 _key = param_aliases[key]
-            if key in self.params:
-                _value = self.params[key]
-                if _value.count(",")>0:
-                    value_list = _value.split(",")
-                    value_list = [param_aliases[x.strip()] if x.strip() in param_aliases else x.strip() for x in value_list]
-                    self.signal_manager.updateParam.emit(_key, value_list)
-                else:
-                    self.signal_manager.updateParam.emit(_key, [_value])
+            if default_params[key].count(",") > 0:
+                value_list = default_params[key].split(",")
+                if key in self.params:
+                    if self.params[key] in value_list:
+                        value_list.remove(self.params[key])
+                        value_list.insert(0, self.params[key]) # insert it to the first element (show on screen)
+                value_list = [param_aliases[x] if x in param_aliases else x for x in value_list]
+                self.signal_manager.updateParam.emit(_key, value_list)
             else:
-                _value = default_params[key]
-                if _value.count(","):
-                    value_list = _value.split(",")
-                    value_list = [param_aliases[x.strip()] for x in value_list]
-                    self.signal_manager.updateParam.emit(_key, value_list)
+                if key in self.params:
+                    _value = self.params[key]
                 else:
-                    self.signal_manager.updateParam.emit(_key, [_value])
+                    _value = default_params[key]
+                _value = param_aliases[_value] if _value in param_aliases else _value
+                self.signal_manager.updateParam.emit(_key, [_value])
     
     def update_progress(self):
         '''
@@ -484,101 +590,123 @@ class Backend(QtCore.QObject):
         inv_aliases = {v: k for k, v in param_aliases.items()}
         name = inv_aliases[param_name_alias] if param_name_alias in inv_aliases else param_name_alias
         if value_or_alias is None:
-            self.params[name] = default_params[name]
-            print(f"Set parameter: {name} = {default_params[name]}")
+            if default_params[name].count(",") > 0:
+                self.params[name] = default_params[name].split(",")[0]
+                print(f"Set parameter: {name} = {self.params[name]}")
+            else:
+                self.params[name] = default_params[name]
+                print(f"Set parameter: {name} = {default_params[name]}")
         else:
             value = inv_aliases[value_or_alias] if value_or_alias in inv_aliases else value_or_alias
             self.params[name] = value
             print(f"Set parameter: {name} = {value}")
         
     def test_run(self):
-        if not self.vm.is_ready:
-            self.signal_manager.errorOccor.emit("Please select a video.")
-            return
-        if self.running:
-            self.signal_manager.errorOccor.emit("Running process is already running.")
-            return
-        if self.test_running:
-            self.signal_manager.errorOccor.emit("Test running process is already running.")
-            return
-        if not self.have_face_database:
-            self.signal_manager.errorOccor.emit("Please select a database.")
-            return
-        if self.params['det_size'].format(r"\d+x\d+") is None:
-            self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
-            return
+        #check_time = time.monotonic()
+        #if not self.vm.is_ready:
+        #    self.signal_manager.errorOccor.emit("Please select a video.")
+        #    return
+        #if self.running:
+        #    self.signal_manager.errorOccor.emit("Running process is already running.")
+        #    return
+        #if self.test_running:
+        #    self.signal_manager.errorOccor.emit("Test running process is already running.")
+        #    return
+        #if not self.have_face_database:
+        #    self.signal_manager.errorOccor.emit("Please select a database.")
+        #    return
+        #if self.params['det_size'].format(r"\d+x\d+") is None:
+        #    self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
+        #    return
+        #
+        #det_size = self.params['det_size'].format(r"\d+x\d+")
+        #det_size = tuple(map(int, det_size.split("x")))
+        #if det_size[0] < 0 or det_size[1] < 0:
+        #    self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
+        #    return
+        #
+        #print(f"Check time: {time.monotonic()-check_time} s")
+        #
+        #print(f"Test running with parameters: {self.params}")
+        #
+        #def test_run():
+        #    build_time = time.monotonic()
+        #    try:
+        #        self.fr = FaceRecognizer(det_size=det_size)
+        #        self.fdm.set_face_recognizer(self.fr)
+        #        self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
+        #        self.fa = FaceAnalyzer()
+        #        self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
+        #    except Exception as e:
+        #        self.signal_manager.errorOccor.emit(str(e))
+        #        return
+        #    
+        #    print(f"Build time: {time.monotonic()-build_time} s")
+        #    
+        #    self.test_running = True
+        #    
+        #    transcribe_time = time.monotonic()
+        #    self.cur_process = "Transcribing"
+        #    self.cur_progress = 0
+        #    self.total_progress = 100
+        #    self.update_progress()
+        #    self.sm.transcribe(self.vm.get_video_path())
+        #    
+        #    print(f"Transcribe time: {time.monotonic()-transcribe_time} s")
+        #    
+        #    while self.test_running:
+        #        get_frame_time = time.monotonic()
+        #        try:
+        #            frame = self.vm.next_frame()
+        #        except Exception as e:
+        #            self.signal_manager.errorOccor.emit(str(e))
+        #            self.test_running = False
+        #            break
+        #        
+        #        print(f"Get frame time: {time.monotonic()-get_frame_time} s")
+        #        
+        #        resize_time = time.monotonic()
+        #        frame = cv2.resize(frame, (1280, 720)) # 16:9
+        #        print(f"Resize time: {time.monotonic()-resize_time} s")
+        #        recon_time = time.monotonic()
+        #        faces = self.fr.get(frame)
+        #        print(f"Recognition time: {time.monotonic()-recon_time} s")
+        #        process_time = time.monotonic()
+        #        bboxes = []
+        #        for i in range(len(faces)):
+        #            bbox = faces[i].bbox.astype(int).tolist()
+        #            bboxes.append(bbox)
+        #        names = []
+        #        for i in range(len(faces)):
+        #            name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False)
+        #            names.append(name)
+        #        self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
+        #        statuses = []
+        #        for i in range(len(faces)):
+        #            status = self.fa.is_talking(names[i])
+        #            statuses.append(status)
+        #        print(f"Process time: {time.monotonic()-process_time} s")
+        #        #time_s = self.vm.get_time()
+        #        
+        #        draw_time = time.monotonic()
+        #        # putting informations on the frame using cv2
+        #        for i in range(len(faces)):
+        #            cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
+        #            frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
+        #            frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
+        #        print(f"Draw time: {time.monotonic()-draw_time} s")
+        #        cv2.imshow("Test Running", frame)
+        #        if cv2.waitKey(1) & 0xFF == ord('q'):
+        #            break
+        #        
+        #    self.test_running = False
+        #
+        print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
+        test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
+        #
+        #self.test_run_thread = threading.Thread(target=test_run)
+        #self.test_run_thread.start()
         
-        det_size = self.params['det_size'].format(r"\d+x\d+")
-        det_size = tuple(map(int, det_size.split("x")))
-        if det_size[0] < 0 or det_size[1] < 0:
-            self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
-            return
-            
-        print(f"Test running with parameters: {self.params}")
-        try:
-            self.fr = FaceRecognizer(det_size=det_size)
-            self.fdm.set_face_recognizer(self.fr)
-            self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-            self.fa = FaceAnalyzer(value_window_size=int(self.params['value_window_size']))
-            self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
-        except Exception as e:
-            self.signal_manager.errorOccor.emit(str(e))
-            return
-        
-        self.test_running = True
-        
-        #self.cur_process = "Transcribing"
-        #self.cur_progress = 0
-        #self.total_progress = 100
-        #self.update_progress()
-        #self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
-        #self.transcribe_thread.start()
-        
-        def test_run():
-            while self.test_running:
-                try:
-                    frame = self.vm.next_frame()
-                except Exception as e:
-                    self.signal_manager.errorOccor.emit(str(e))
-                    self.test_running = False
-                    break
-                
-                frame = cv2.resize(frame, (1280, 720)) # 16:9
-                faces = self.fr.get(frame)
-                bboxes = []
-                for i in range(len(faces)):
-                    bbox = faces[i].bbox.astype(int).tolist()
-                    bboxes.append(bbox)
-                names = []
-                for i in range(len(faces)):
-                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False)
-                    names.append(name)
-                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
-                statuses = []
-                for i in range(len(faces)):
-                    status = self.fa.is_talking(names[i])
-                    statuses.append(status)
-                    
-                time_s = self.vm.get_time()
-                
-                #print(f"Recorded at {time_s} s")
-                #print(f"bboxes: {bboxes}")
-                #print(f"Names: {names}")
-                #print(f"Statuses: {statuses}")
-                
-                # putting informations on the frame using cv2
-                for i in range(len(faces)):
-                    cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
-                    frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
-                    frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-                cv2.imshow("Test Running", frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                
-            self.test_running = False
-        
-        self.test_run_thread = threading.Thread(target=test_run)
-        self.test_run_thread.start()
         
     @QtCore.pyqtSlot()
     def terminateProcess(self):

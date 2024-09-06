@@ -253,7 +253,7 @@ class ParamPanel(QtWidgets.QScrollArea):
         input = QtWidgets.QLineEdit(widget)
         input.setText(str(default_value))
         input.setFont(MyFont())
-        input.setFixedWidth(60)
+        input.setFixedWidth(80)
         input.textChanged.connect(lambda: self.on_change(name, input.text()))
         layout.addWidget(input)
         widget.setLayout(layout)
@@ -272,7 +272,7 @@ class ParamPanel(QtWidgets.QScrollArea):
         input = QtWidgets.QComboBox(widget)
         input.addItems(options)
         input.setFont(MyFont())
-        input.setFixedWidth(60)
+        input.setFixedWidth(80)
         input.setCurrentIndex(0) # default value
         input.currentIndexChanged.connect(lambda: self.on_change(name, input.currentText()))
         layout.addWidget(input)
@@ -330,7 +330,7 @@ class MemberDetailWindow(QtWidgets.QDialog):
         self.pic_scroll_area = QtWidgets.QScrollArea()
         self.scroll_widget = QtWidgets.QWidget()
         self.pic_grid_layout = QtWidgets.QGridLayout()
-        self.pic_grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.pic_grid_layout.setContentsMargins(5, 5, 5, 5)
         self.scroll_widget.setLayout(self.pic_grid_layout)
         self.pic_scroll_area.setWidget(self.scroll_widget)
         layout.addWidget(self.pic_scroll_area)
@@ -358,7 +358,9 @@ class MemberDetailWindow(QtWidgets.QDialog):
             if i_col == cols:
                 i_col = 0
                 i_row += 1
-        
+        for i in range(len(self.member_imgs)%cols):
+            self.pic_grid_layout.addWidget(QtWidgets.QLabel(), i_row, i_col)
+            i_col += 1
         hei = 110*math.ceil(len(self.member_imgs)/cols)
         if hei < self.pic_scroll_area.size().height():
             self.scroll_widget.resize(QtCore.QSize(self.pic_scroll_area.size().width()-5, hei))

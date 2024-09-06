@@ -48,7 +48,7 @@ if __name__ == '__main__':
             frame = vm.get_frame() # 暫停時的畫面
         if frame is None:
             break
-        frame = cv2.resize(frame, (1280, 720)) # 16:9
+        
         get_frame_time = time.monotonic() - get_frame_time
         print(f'get frame time: {get_frame_time}s')
         

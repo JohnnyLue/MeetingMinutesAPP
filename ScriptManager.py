@@ -74,17 +74,19 @@ class ScriptManager:
         for s in self.result:
             print(f"{s['start']} {s['end']} {s['text']}")
     
-    def load_script_file(self, path:str):
+    def load_script_file(self, path):
         '''
         input: the path to the script file
         output: bool - whether load successfully
         '''
+        if path is None:
+            return 
         if not self._check_script_file_format(path):
             print("ScriptManager::load_script_file: script file format error")
-            return False
+            return 
         if self.lock:
             print("ScriptManager::load_script_file: wait for process to end.")
-            return False
+            return 
         
         self.result = []
         with open(path, 'r') as f:
