@@ -2,6 +2,7 @@ import cv2
 import math
 from PyQt5 import QtWidgets, QtCore, QtGui
 import socket
+import subprocess
 import sys
 import threading
 import configparser
@@ -220,7 +221,6 @@ class MainWindow(QtWidgets.QWidget):
         self.select_database_button = new_button("選擇資料庫")
         self.select_database_button.clicked.connect(self.select_database_dialog)
         
-        # Database Operation Gui
         self.db_grid_layout = QtWidgets.QGridLayout()
         self.db_scroll_widget = QtWidgets.QWidget()
         self.db_scroll_area = QtWidgets.QScrollArea()
@@ -229,8 +229,13 @@ class MainWindow(QtWidgets.QWidget):
         self.db_scroll_widget.setLayout(self.db_grid_layout)
         self.db_scroll_area.setWidget(self.db_scroll_widget)
         self.db_scroll_widget.hide()
+        
+        self.merge_button = new_button("合併人員")
+        #self.merge_button.clicked.connect()
+        
         db_layout.addWidget(self.select_database_button)
         db_layout.addWidget(self.db_scroll_area)
+        db_layout.addWidget(self.merge_button)
         db_and_parm_layout.addLayout(db_layout)
         db_and_parm_layout.addSpacing(30)
 
@@ -701,12 +706,12 @@ class Backend(QtCore.QObject):
         #        
         #    self.test_running = False
         #
-        print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
-        test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
+        #print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
+        #test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
+        subprocess.popen(f'python run.py --video_path {self.vm.get_video_path()} --script_path script.txt --database_dir {self.fdm.database_root} --output_dir records --model_name {self.params["whisper_model"]} --language {self.params["language"]} --prefix {self.params["new_member_prefix"]} --resolution {self.params["det_size"]}')
         #
         #self.test_run_thread = threading.Thread(target=test_run)
         #self.test_run_thread.start()
-        
         
     @QtCore.pyqtSlot()
     def terminateProcess(self):

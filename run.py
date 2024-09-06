@@ -85,9 +85,10 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
             frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
             frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-            'time_s': vm.get_time(), 'bbox': bboxes, 'name': names, 'status': statuses
-            requests.post('http://localhost:5000/frame', json={'frame': frame.tolist()})
-            s.bind(('localhost', 12345))
+            frame = PutText(frame, sm.get_script_by_time(vm.get_time()), (0, 0))
+            #'time_s': vm.get_time(), 'bbox': bboxes, 'name': names, 'status': statuses
+            #requests.post('http://localhost:5000/frame', json={'frame': frame.tolist()})
+            #s.bind(('localhost', 12345))
         show_time = time.monotonic() - show_time
         print(f'show time: {show_time}s')
         
