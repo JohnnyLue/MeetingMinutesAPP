@@ -1,6 +1,9 @@
-import whisper
-import time
+import logging
 import os
+import time
+import whisper
+
+logger = logging.getLogger()
 
 class ScriptManager:
     def __init__(self, model_name = 'small', language = 'zh'):
@@ -8,13 +11,14 @@ class ScriptManager:
         self.lang = language
         self.result = None
         self.lock = False
+        logger.info("ScriptManager initialized")
     
     def transcribe(self, audio_path:str):
-        print("transcribing...")
+        logger.info("Transcribing...")
         start_time = time.time()
         self.lock = True
         _result = whisper.transcribe(self.model, audio_path, language=self.lang, verbose=False)
-        print(f"transcribed in {(time.time() - start_time):.2f}s")
+        logger.debug(f"transcribed in {(time.time() - start_time):.2f}s")
         # post process of result (only keeps segments and only the start, end, text)
         _result = _result['segments']
         
@@ -32,12 +36,13 @@ class ScriptManager:
         segment: script unit containing start, end time and text(mainly)
         '''
         if self.result == None:
-            print("ScriptManager::get_result: no result now")
+            logger.warning("No result now")
             return None
         if self.lock:
-            print("ScriptManager::get_result: result not ready")
+            logger.warning("Result not ready")
             return None
-            
+        
+        logger.debug("Get result")
         return self.result
     
     def get_script_by_time(self, _time:float):
@@ -46,33 +51,33 @@ class ScriptManager:
         output: [str|None] the coresponding line of script or None if no script at the time.
         '''
         if self.result == None:
-            print("ScriptManager::get_result: no result now")
-            return None
+            logger.warning("No result now")
+            return ''
         if self.lock:
-            print("ScriptManager::get_result: result not ready")
-            return None
+            logger.warning("Result not ready")
+            return ''
         if _time < 0:
-            print('ScriptManager::get_script_by_time: time must be positive float.')
-            return None
+            logger.warning('Time must be positive float.')
+            return ''
         
         for s in self.result:
             if s['start'] <= _time and s['end'] >= _time:
-                return s['text']
-        return None
+                return s['text'] if s['text'] else ''
+        return ''
     
     def print_script(self):
         '''
-        output: formated print to cmd console, for debug uses
+        output: formated logger.warning to cmd console, for debug uses
         '''
         if self.result == None:
-            print("ScriptManager::print_script: no result now")
+            logger.warning("No result now")
             return
         if self.lock:
-            print("ScriptManager::print_script: result not ready")
+            logger.warning("Result not ready")
             return
             
         for s in self.result:
-            print(f"{s['start']} {s['end']} {s['text']}")
+            logger.debug(f"{s['start']} {s['end']} {s['text']}")
     
     def load_script_file(self, path):
         '''
@@ -82,25 +87,27 @@ class ScriptManager:
         if path is None:
             return 
         if not self._check_script_file_format(path):
-            print("ScriptManager::load_script_file: script file format error")
+            logger.warning("Script file format error")
             return 
         if self.lock:
-            print("ScriptManager::load_script_file: wait for process to end.")
+            logger.warning("Wait until process ended.")
             return 
-        
+        logger.debug(f"Loading script file: {path}")
         self.result = []
         with open(path, 'r') as f:
             lines = f.readlines()
         for line in lines:
             s = line.strip().split('_')
             self.result.append({'start':float(s[0]), 'end':float(s[1]), 'text':s[2]})
+        logger.info(f"Script file loaded: {path}")
 
     def load_script_from_record(self, record):
         result = record.get_script()
         if result == None:
-            print("ScriptManager::load_script_from_record: no script in record")
+            logger.warning("No script in record")
         else:
             self.result = result
+            logger.info("Loaded from record")
 
     def script_detected_in(self, _from:float, _to:float):
         '''
@@ -112,13 +119,13 @@ class ScriptManager:
         bool: in the time range exist any detected script
         '''
         if self.result == None:
-            print("ScriptManager::is_talking: no result now")
+            logger.warning("No result now")
             return False
         if self.lock:
-            print("ScriptManager::is_talking: result not ready")
+            logger.warning("Result not ready")
             return False
         if _from > _to:
-            print("ScriptManager::is_talking: error, start time large then end time")
+            logger.warning("Start time large then end time")
             return False
         
         for s in self.result:
@@ -138,7 +145,7 @@ class ScriptManager:
             with open(path, 'w') as f:
                 f.writelines(lines)
         except:
-            print('ScriptManager::generate_script_file: encounter error writing file.')
+            logger.warning('Encounter error writing file.')
             return False
         
         return True
@@ -149,17 +156,21 @@ class ScriptManager:
         output: bool - whether append successfully
         '''
         if not self._check_script_file_format(path):
-            print("ScriptManager::append_script_file: script file format error")
+            logger.warning("Script file format error")
             return False
         if self.result == None:
-            print("ScriptManager::append_script_file: no result now")
+            logger.warning("No result now")
             return False
         if self.lock:
-            print("ScriptManager::append_script_file: result not ready")
+            logger.warning("Result not ready")
             return False
         
-        with open(path, 'r') as f:
-            lines = f.readlines()
+        try:
+            with open(path, 'r') as f:
+                lines = f.readlines()
+        except:
+            logger.error('Encounter error reading file.')
+            return False
         init_time = float(lines[-1].split('_')[1]) # last segment's end time
 
         lines = []
@@ -169,12 +180,13 @@ class ScriptManager:
             with open(path, 'a') as f:
                 f.writelines(lines)
         except:
-            print('ScriptManager::append_script_file: encounter error writing file.')
+            logger.error('Encounter error writing file.')
+            return False
         return True
     
     def _check_script_file_format(self, path:str):
         if not os.path.exists(path):
-            print('ScriptManager::check_script_file_format: file path not exist.')
+            logger.warning(f'File path {path} not exist.')
             return False
         
         with open(path, 'r') as f:

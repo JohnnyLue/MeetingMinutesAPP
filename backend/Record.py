@@ -1,8 +1,9 @@
-import os
-import json
 import datetime
+import json
+import logging
+import os
 
-from ScriptManager import ScriptManager
+logger = logging.getLogger()
 
 class Record:
     def __init__(self, file_path = None, store_base = os.path.join(os.getcwd(), "records")):
@@ -15,12 +16,15 @@ class Record:
         
         if file_path is not None:
             if self._check_format(file_path):
-                print("Record::__init__: Load record file")
+                logger.info(f"Load record file {file_path}")
                 self.load(file_path)
             else:
-                raise Exception("Record::__init__: Invalid record file format")
+                logger.error("Invalid record file format, record initialization failed")
+                return
         else:
+            logger.info("Create new record")
             self.path = self.__generate_path()
+        logger.info(f"Record initialized, record file: {self.path}")
     
     def clear(self):
         self.parameters = {}
@@ -39,27 +43,32 @@ class Record:
         
     def set_parameter(self, key, value):
         self.parameters[key] = value
+        logger.info(f"Set parameter: {key} = {value}")
     
     def get_parameter(self, key):
         if key not in self.parameters:
             return None
+        logger.debug(f"Get parameter: {key} = {self.parameters[key]}")
         return self.parameters[key]
     
     def get_script(self):
         if self.is_ready:
+            logger.debug("Get script from record")
             return self.script
         return None
     
     def get_data(self):
         if self.is_ready:
+            logger.debug("Get data from record")
             return self.data
         return None
     
     def write_data(self, time_s, bboxes, names, statuses):
         self.data[time_s] = {"bbox": bboxes, "names": names, "statuses": statuses}
         
-    def write_script(self, script: ScriptManager):
-        self.script = script.get_result()
+    def write_script(self, script_result):
+        logger.info("Write script to record")
+        self.script = script_result
         
     def export(self, file_path = None):
         if file_path:
@@ -90,6 +99,7 @@ class Record:
     
     def _check_format(self, file_path: str):
         if not os.path.isfile(file_path) or not file_path.endswith(".json"):
+            logger.error(f"File not exist or not a json file: {file_path}")
             return False
         try:
             with open(file_path, "r") as file:
@@ -97,7 +107,10 @@ class Record:
                 if "parameters" in data and "data" in data and "script" in data:
                     return True
         except:
+            logger.error(f"Encounter error opening json file: {file_path}")
             return False
+        
+        logger.error(f"Invalid record file format: {file_path}")
         return False
             
     def __generate_path(self):
@@ -107,4 +120,5 @@ class Record:
         while os.path.exists(os.path.join(self.base_dir, date_str + ".json")):
             date_str = date_str + f" ({i})"
             i += 1
+        logger.debug(f"Generate file path: {date_str}")
         return os.path.join(self.base_dir, date_str + ".json")

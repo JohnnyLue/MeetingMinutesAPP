@@ -1,20 +1,32 @@
 import cv2
+import logging
 import math
-from PyQt5 import QtWidgets, QtCore, QtGui
 import socket
 import subprocess
 import sys
 import threading
 import configparser
 
-from FaceRecognizer import FaceRecognizer
-from FaceDatabaseManager import FaceDatabaseManager
-from FaceAnalyzer import FaceAnalyzer
-from FrontEndWidgets import *
-from ScriptManager import ScriptManager
-from VideoManager import VideoManager
-from Record import Record
+from PyQt5 import QtWidgets, QtCore, QtGui
 from Utils import *
+
+logger = logging.getLogger()
+logger.handlers.clear()
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+	'[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
+	'%H:%M:%S')
+
+fileLogger = logging.FileHandler('log.txt', mode='w')
+fileLogger.setLevel(logging.DEBUG)
+fileLogger.setFormatter(formatter)
+
+streamLogger = logging.StreamHandler()
+streamLogger.setLevel(logging.DEBUG)
+streamLogger.setFormatter(formatter)
+
+logger.addHandler(fileLogger)
+logger.addHandler(streamLogger)
 
 config = configparser.ConfigParser()
 config.read("config.ini")

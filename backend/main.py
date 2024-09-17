@@ -1,7 +1,8 @@
 import argparse
 import cv2
-import time
+import logging
 import socket
+import time
 
 from FaceAnalyzer import FaceAnalyzer
 from FaceDatabaseManager import FaceDatabaseManager
@@ -10,6 +11,24 @@ from Record import Record
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
 from Utils import *
+
+logger = logging.getLogger()
+logger.handlers.clear()
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+	'[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
+	'%H:%M:%S')
+
+fileLogger = logging.FileHandler('log.txt', mode='w')
+fileLogger.setLevel(logging.DEBUG)
+fileLogger.setFormatter(formatter)
+
+streamLogger = logging.StreamHandler()
+streamLogger.setLevel(logging.DEBUG)
+streamLogger.setFormatter(formatter)
+
+logger.addHandler(fileLogger)
+logger.addHandler(streamLogger)
 
 def run(video_path, script_path, database_dir, output_dir, record_path, model_name, language, prefix, resolution):
     init_time = time.monotonic()
@@ -22,7 +41,7 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
     sm = ScriptManager(model_name, language)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     init_time = time.monotonic() - init_time
-    print(f'init time: {init_time} s')
+    logger.debug(f'init time: {init_time} s')
     
     if script_path is not None:
         try:
@@ -34,14 +53,14 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             sm.transcribe(vm.get_video_path())
             sm.save_script_file('script.txt')
             script_time = time.monotonic() - script_time
-            print(f'script time: {script_time} s')
+            logger.debug(f'script time: {script_time} s')
     else:
         # 生成字幕
         script_time = time.monotonic()
         sm.transcribe(vm.get_video_path())
         sm.save_script_file('script.txt')
         script_time = time.monotonic() - script_time
-        print(f'script time: {script_time} s')
+        logger.debug(f'script time: {script_time} s')
 
     #fdm.generate_embeddings(True) # 重新生成臉部特徵
     process_time = time.monotonic() # 計算總處理時間
@@ -58,7 +77,7 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             break
         frame = cv2.resize(frame, (1280, 720)) # 16:9
         get_frame_time = time.monotonic() - get_frame_time
-        print(f'get frame time: {get_frame_time}s')
+        #logger.debug(f'get frame time: {get_frame_time}s')
         
         # 偵測、分析臉部
         detect_time = time.monotonic()
@@ -69,15 +88,19 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             bboxes.append(bbox)
         names = []
         for i in range(len(faces)):
-            name = fr.get_name(frame, faces[i], fdm, create_new_face=False)
+            name = fr.get_name(frame, faces[i], fdm, create_new_face=True)
             names.append(name)
-        fa.update(zip(names, [fr.get_landmark(x) for x in faces]))
+        logger.debug(f'Found names: {names}')
+        name_lmk = zip(names, [fr.get_landmark(x) for x in faces])
+        name_lmk = [x for x in name_lmk if x[0] is not None]
+        fa.update(name_lmk)
         statuses = []
         for i in range(len(faces)):
             status = fa.is_talking(names[i])
             statuses.append(status)
+        logger.debug(f'Statuses: {statuses}')
         detect_time = time.monotonic() - detect_time
-        print(f'detect time: {detect_time}s')
+        #logger.debug(f'detect time: {detect_time}s')
         
         # 顯示
         show_time = time.monotonic()
@@ -89,8 +112,9 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             #'time_s': vm.get_time(), 'bbox': bboxes, 'name': names, 'status': statuses
             #requests.post('http://localhost:5000/frame', json={'frame': frame.tolist()})
             #s.bind(('localhost', 12345))
+        cv2.imshow('frame', frame)
         show_time = time.monotonic() - show_time
-        print(f'show time: {show_time}s')
+        #logger.debug(f'show time: {show_time}s')
         
         # 計算fps
         counter += 1
@@ -98,24 +122,25 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             now_time = time.monotonic()
             fps = 30 / (now_time - start_time)
             start_time = now_time
-            print(f'fps: {fps}')
-            
+            logger.debug(f'fps: {fps}')
+        
+        logger.debug(' ')
+        
         # 暫停
         if cv2.waitKey(1) & 0xFF == ord(' '):
             paused = not paused
-            print('pause')
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        if cv2.waitKey(1) & 0xFF == ord('a'):
-            vm.forward(120)
         if cv2.waitKey(1) & 0xFF == ord('d'):
+            vm.forward(120)
+        if cv2.waitKey(1) & 0xFF == ord('a'):
             vm.rewind(120)
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     arg = argparse.ArgumentParser()
     arg.add_argument("-v", "--video", required=True, help="path to video file")
-    arg.add_argument("-s", "--script", required=False, help="path to script file", default='script.txt')
+    arg.add_argument("-s", "--script", required=False, help="path to script file", default=None)
     arg.add_argument("-d", "--database", required=False, help="path to database folder", default='database')
     arg.add_argument("-o", "--output", required=False, help="path to folder storing output record", default='records')
     arg.add_argument("-i", "--record", required=False, help="path to record file", default=None)

@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import os
 import random
@@ -5,6 +6,8 @@ import cv2
 import glob
 
 from insightface.app import FaceAnalysis
+
+logger = logging.getLogger()
 
 MAX_EMBEDDING_NUM = 15
 GOOD_FACE_QUALITY = 0.8
@@ -19,53 +22,57 @@ class FaceRecognizer(FaceAnalysis):
                  allowed_modules = ['detection', 'recognition', 'landmark_2d_106']):
         super().__init__(name = name, providers = providers, allowed_modules = allowed_modules)
         self.prepare(ctx_id, det_thresh, det_size)
+        logger.info("FaceRecognizer initialized")
 
     def generate_embedding(self, img):
         if img.shape[0] < LEAST_IMG_SIZE or img.shape[1] < LEAST_IMG_SIZE:
-                print(f'FaceRecognizer::generate_embeddings: image is too small.')
+                logger.warning(f'Image is too small.')
                 return None
             
         faces = self.get(img)
         if len(faces) != 1:
-            print(f'FaceRecognizer::generate_embeddings: The image has {len(faces)} faces.')
+            logger.warning(f'The image has {len(faces)} faces.')
             return None
         if faces[0].det_score < GOOD_FACE_QUALITY:
-            print(f'FaceRecognizer::generate_embeddings: The image has bad quality face.')
+            logger.warning('The image has bad quality face.')
             return None
         embeddings = np.stack([faces[0].normed_embedding], axis=0) # turn into Ndarray
+        logger.debug(f'Generated embedding shape: {embeddings.shape}')
         return embeddings
     
     def generate_embeddings_from_folder(self, image_folder):
         embeddings = []
         files = glob.glob(f'{image_folder}\*.png')
+        logger.debug(f'Found {len(files)} images in {os.path.basename(image_folder)}\'s dataset.')
         
         for file in files:
             img = cv2.imread(file)
             if img.shape[0] < LEAST_IMG_SIZE or img.shape[1] < LEAST_IMG_SIZE:
-                print(f'FaceRecognizer::generate_embeddings: In {os.path.basename(image_folder)}\'s dataset: {file} picture is too small.')
+                logger.warning(f'In {os.path.basename(image_folder)}\'s dataset: {file} picture is too small.')
                 continue
             
             faces = self.get(img)
             if len(faces) != 1:
-                print(f'FaceRecognizer::generate_embeddings: In {os.path.basename(image_folder)}\'s dataset: {file} has {len(faces)} faces.')
+                logger.warning(f'In {os.path.basename(image_folder)}\'s dataset: {file} has {len(faces)} faces.')
                 continue
             if faces[0].det_score < GOOD_FACE_QUALITY:
-                print(f'FaceRecognizer::generate_embeddings: In {os.path.basename(image_folder)}\'s dataset: {file} has bad quality face.')
+                logger.warning(f'In {os.path.basename(image_folder)}\'s dataset: {file} has bad quality face.')
                 continue
             
             embeddings.append(faces[0].normed_embedding)
             
         if len(embeddings) == 0:
-            print(f'FaceRecognizer::generate_embeddings: No any valid face detected in {os.path.basename(image_folder)}\'s dataset!')
+            logger.warning(f'No any valid face detected in {os.path.basename(image_folder)}\'s dataset, return None.')
             return None
         if len(embeddings) > MAX_EMBEDDING_NUM:
             embeddings = random.choices(embeddings, k = MAX_EMBEDDING_NUM)
         embeddings = np.stack(embeddings, axis=0) # turn into Ndarray
-        print(embeddings.shape, len(embeddings))
+        logger.debug(f'Generated embeddings shape: {embeddings.shape}')
         return embeddings
 
     def get_faces(self, image):
         faces = self.get(image)
+        logger.debug(f'Found {len(faces)} faces')
         return faces
 
     def get_name(self, image, face, fdm, create_new_face=False, new_face_threshold = 0.3, search_threshold=0.4):
@@ -82,6 +89,7 @@ class FaceRecognizer(FaceAnalysis):
         '''
         face_emb_dict = fdm.get_name_embeddings_dict()
         if face.det_score < GOOD_FACE_QUALITY: # make sure the quality of face is good
+            logger.debug('Bad quality face.')
             return None
         
         if create_new_face:
@@ -94,26 +102,27 @@ class FaceRecognizer(FaceAnalysis):
         if len(face_emb_dict) == 0:
             if create_new_face:
                 if self.get(face_image) == []:
-                    print('FaceRecognizer::get_name: Just checking, should not be here.')
                     return None
                 
-                print('FaceRecognizer::get_name: No face in database, creating new face...')
+                logger.info('No face in database, creating new face...')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
                 return new_name
             else:
+                logger.debug('No face in database, and not creating new face.')
                 return None
             
         pred_name_score = self._search_similar(face.normed_embedding, face_emb_dict)
         if pred_name_score is None:
+            logger.debug('No similar face found.')
             return None
         
         if pred_name_score[1] < search_threshold and create_new_face:
             if pred_name_score[1] < new_face_threshold: # create new face in database
-                print('FaceRecognizer::get_name: Unrecognized face, creating new face in database...')
+                logger.info('Unrecognized face, creating new face in database')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
-                print(f'FaceRecognizer::get_name: New face created: {new_name}')
                 return new_name
             else:
+                logger.info('Add new face data to this member')
                 fdm.add_new_face(face_image, name = pred_name_score[0], embedding = face.normed_embedding) # add new face data to this member
                 return pred_name_score[0]
             
@@ -126,16 +135,6 @@ class FaceRecognizer(FaceAnalysis):
         if len(face.landmark_2d_106) == 106:
             return face.landmark_2d_106
         return None
-        ret_lmks = []
-        for face in faces:
-            lmk = face.landmark_2d_106
-            ret_lmks.append(lmk)
-            #for i in range(lmk.shape[0]):
-                
-                #p = (int(lmk[i, 0]), int(lmk[i, 1]))
-                #cv2.circle(tim, p, 1, color, 1, cv2.LINE_AA)
-                #cv2.putText(tim, f'{i - 52}', p, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color)
-        return ret_lmks
         
     def _search_similar(self, emb_to_search, name_embedding_dict):
         '''
@@ -148,18 +147,16 @@ class FaceRecognizer(FaceAnalysis):
         None if not found
         '''
         if name_embedding_dict is None or len(name_embedding_dict) == 0:
+            logger.warning('No face in database.')
             return None
         
         name_scores = []
         for name, embs in name_embedding_dict.items():
             scores = np.round(np.dot(emb_to_search, embs.T), 3)
-            #print(scores, end=' ')
             highest_score = np.max(scores, axis=0)
             name_scores.append((name, highest_score))
-        #print()
         name_scores.sort(reverse=True, key=lambda x: x[1])
-        #print(name_scores)
-
+        logger.debug(f'name and scores: {name_scores}')
         if len(name_scores) == 0:
             return None
         
