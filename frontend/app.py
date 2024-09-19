@@ -2,13 +2,12 @@ import cv2
 import logging
 import math
 import socket
-import subprocess
 import sys
-import threading
 import configparser
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 from Utils import *
+from FrontEndWidgets import *
 
 logger = logging.getLogger()
 logger.handlers.clear()
@@ -28,10 +27,82 @@ streamLogger.setFormatter(formatter)
 logger.addHandler(fileLogger)
 logger.addHandler(streamLogger)
 
-config = configparser.ConfigParser()
-config.read("config.ini")
-default_params = config['DEFAULT']
-param_aliases = config['ALIASES']
+class SocketInterface():
+    def __init__(self, host='localhost', port=8080, buffer_size=1024):
+        self.sock = None
+        self.host = host
+        self.port = port
+        self.buffer_size = buffer_size
+        self.conn = None
+        self.inited = False
+        self.isServer = False
+        self.isClient = False
+        
+    def imServer(self):
+        self.isClient = False
+        self.isServer = True
+        if self.inited:
+            self.inited = False
+            self.sock.close()
+            logger.info("Close previous server")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind((self.host, self.port))
+        self.sock.listen(1)
+        logger.info(f"Server listening on {self.host}:{self.port}")
+        self.inited = True        
+        
+    def accept_connection(self):
+        if not self.isServer:
+            logger.error("Not a server")
+            return
+        if self.conn is not None:
+            self.conn.close()
+            logger.info("Close previous connection")
+        conn, addr = self.sock.accept()
+        logger.info(f"Server connect with {addr}")
+        self.conn = conn
+        return conn, addr
+    
+    def imClient(self):
+        self.isClient = True
+        self.isServer = False
+        if self.inited:
+            self.inited = False
+            self.sock.close()
+            logger.info("Close previous client")
+        self.sock.connect((self.host, self.port))
+        logger.info(f"Client connected to {self.host}:{self.port}")
+        self.inited = True
+                
+    def send_signal(self, signal):
+        self.conn.sendall("SIG")
+        self.conn.sendall(f"{signal}")
+    
+    def send_data(self, data):
+        self.conn.sendall("DAT")
+        self.conn.sendall(f"{data}")
+        
+    def send_image(self, image):
+        self.conn.sendall("IMG")
+        _, image_data = cv2.imencode('.jpg', image)
+        self.send_data(image_data.tobytes())
+        
+    def receive(self):
+        tag = self.conn.recv(3).decode()
+        if tag == "SIG":
+            signal = self.conn.recv(self.buffer_size).decode()
+            return signal
+        elif tag == "DAT":
+            data = self.conn.recv(self.buffer_size).decode()
+            return data
+        elif tag == "IMG":
+            image_data = self.conn.recv(self.buffer_size)
+            image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
+            return image
+        else:
+            logger.error("Unknown type of data")
+        logger.debug(f"Received: {tag}")
+        
 
 class SignalManager(QtCore.QObject):
     # Define signals
@@ -312,329 +383,6 @@ class MainWindow(QtWidgets.QWidget):
             self.video_preview.reset()
         event.accept()
         
-class Backend(QtCore.QObject):
-    def __init__(self, signal_manager: SignalManager, record: Record):
-        super().__init__()
-        self.signal_manager = signal_manager
-        self.record = record
-        self.params = {}
-        
-        # connect signals
-        self.signal_manager.selectedVideo.connect(self.set_video_path)
-        self.signal_manager.selectedDatabase.connect(self.set_database_path)
-        self.signal_manager.testRun.connect(self.test_run)
-        self.signal_manager.startProcess.connect(self.run)
-        self.signal_manager.terminateProcess.connect(self.terminateProcess)
-        self.signal_manager.alterParam.connect(self.set_param)
-        self.signal_manager.requestParams.connect(self.get_params)
-        self.signal_manager.requestProgress.connect(self.update_progress)
-        self.signal_manager.recordOverwriteConfirmed.connect(self.clear_record_and_run)
-        self.signal_manager.requestAllMemberImg.connect(self.get_all_member_img)
-        
-        # parameters from record, if not recorded, use default
-        for key, _ in default_params.items():
-            #print(f"Get parameter {key} from record: {record.get_parameter(key)}")
-            self.set_param(key, record.get_parameter(key)) # if param is not set in record, get_parameter will return None, and set_param will use default value.
-        
-        # create ViedoManager first for video preview
-        self.vm = VideoManager()
-        
-        self.running = False
-        self.test_running = False
-        self.have_face_database = False
-        self.transcribe_thread = None
-        self.main_thread = None
-        self.test_run_thread = None
-        
-        self.cur_process = ""
-        self.cur_progress = 0
-        self.total_progress = 100
-    
-    @QtCore.pyqtSlot()
-    def run(self):
-        if not self.vm.is_ready:
-            self.signal_manager.errorOccor.emit("Please select a video.")
-            return
-        if self.running:
-            self.signal_manager.errorOccor.emit("Running process is already running.")
-            return
-        if self.test_running:
-            self.signal_manager.errorOccor.emit("正在測試執行，請終止之後再試。")
-            return
-        if self.params['det_size'].format(r"\d+x\d+") is None:
-            self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
-            return
-        det_size = self.params['det_size'].format(r"\d+x\d+")
-        det_size = tuple(map(int, det_size.split("x")))
-        if det_size[0] < 0 or det_size[1] < 0:
-            self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
-        if not self.have_face_database:
-            self.signal_manager.errorOccor.emit("Please select a database.")
-            return
-        if self.record.is_ready:
-            self.signal_manager.recordOverwrite.emit()
-            return
-        
-        try:
-            self.fr = FaceRecognizer(det_size=det_size)
-            self.fdm.set_face_recognizer(self.fr)
-            self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-            self.fa = FaceAnalyzer()
-            self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
-        except Exception as e:
-            self.signal_manager.errorOccor.emit(str(e))
-            return
-        
-        self.running = True
-        
-        self.cur_process = "Transcribing"
-        self.cur_progress = 0
-        self.total_progress = 100
-        self.update_progress()
-        self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
-        self.transcribe_thread.start()
-        
-        def main_run():
-            while self.running:
-                try:
-                    frame = self.vm.next_frame()
-                except Exception as e:
-                    self.signal_manager.errorOccor.emit(str(e))
-                    self.running = False
-                    break
-                faces = self.fr.get(frame)
-                bboxes = []
-                for i in range(len(faces)):
-                    bbox = faces[i].bbox.astype(int).tolist()
-                    bboxes.append(bbox)
-                names = []
-                for i in range(len(faces)):
-                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=True)
-                    names.append(name)
-                    
-                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
-                statuses = []
-                for i in range(len(faces)):
-                    status = self.fa.is_talking(names[i])
-                    statuses.append(status)
-                    
-                time_s = self.vm.get_time()
-                
-                self.record.write_data(time_s, bboxes, names, statuses)
-                #print(f"Recorded at {time_s} s")
-                #print(f"bboxes: {bboxes}")
-                #print(f"Names: {names}")
-                #print(f"Statuses: {statuses}")
-                
-            self.running = False
-            self.save_record()
-        
-        self.main_thread = threading.Thread(target=main_run)
-        self.main_thread.start()
-        
-    @QtCore.pyqtSlot()
-    def clear_record_and_run(self):
-        self.record.clear()
-        self.run()
-        
-    @QtCore.pyqtSlot(str)
-    def set_video_path(self, video_path: str):
-        print(f"Set video path: {video_path}")
-        def func():
-            try:
-                self.vm.load_video(video_path)
-            except Exception as e:
-                self.signal_manager.errorOccor.emit(str(e))
-        threading.Thread(target=func).start()
-     
-    @QtCore.pyqtSlot(str)
-    def set_database_path(self, database_path):
-        self.fdm = FaceDatabaseManager(database_path)
-        self.have_face_database = True
-        print(f"Set database path: {database_path}")
-    
-    @QtCore.pyqtSlot()
-    def get_all_member_img(self):
-        if not self.have_face_database:
-            self.signal_manager.errorOccor.emit("Please select a database.")
-            return
-        
-        names = self.fdm.get_name_list()
-        for name in names:
-            imgs = self.fdm.get_images_by_name(name)
-            for img in imgs:
-                self.signal_manager.returnedMemberImg.emit(name, cv2_to_pixmap(img))
-        self.signal_manager.returnedMemberImg.emit("", QtGui.QPixmap()) # send a signal to tell all images are sent
-    
-    def get_params(self):
-        for key, _ in default_params.items():
-            _key = key
-            if _key in param_aliases:
-                _key = param_aliases[key]
-            if default_params[key].count(",") > 0:
-                value_list = default_params[key].split(",")
-                if key in self.params:
-                    if self.params[key] in value_list:
-                        value_list.remove(self.params[key])
-                        value_list.insert(0, self.params[key]) # insert it to the first element (show on screen)
-                value_list = [param_aliases[x] if x in param_aliases else x for x in value_list]
-                self.signal_manager.updateParam.emit(_key, value_list)
-            else:
-                if key in self.params:
-                    _value = self.params[key]
-                else:
-                    _value = default_params[key]
-                _value = param_aliases[_value] if _value in param_aliases else _value
-                self.signal_manager.updateParam.emit(_key, [_value])
-    
-    def update_progress(self):
-        '''
-        return current processing section and progress/total using tuple
-        '''
-        if not self.running:
-            self.signal_manager.updateProgress.emit("test", 15, 45)
-        else:
-            self.signal_manager.updateProgress.emit(self.cur_process, self.cur_progress, self.total_progress)
-    
-    @QtCore.pyqtSlot(str, str)
-    def set_param(self, param_name_alias, value_or_alias):
-        inv_aliases = {v: k for k, v in param_aliases.items()}
-        name = inv_aliases[param_name_alias] if param_name_alias in inv_aliases else param_name_alias
-        if value_or_alias is None:
-            if default_params[name].count(",") > 0:
-                self.params[name] = default_params[name].split(",")[0]
-                print(f"Set parameter: {name} = {self.params[name]}")
-            else:
-                self.params[name] = default_params[name]
-                print(f"Set parameter: {name} = {default_params[name]}")
-        else:
-            value = inv_aliases[value_or_alias] if value_or_alias in inv_aliases else value_or_alias
-            self.params[name] = value
-            print(f"Set parameter: {name} = {value}")
-        
-    def test_run(self):
-        #check_time = time.monotonic()
-        #if not self.vm.is_ready:
-        #    self.signal_manager.errorOccor.emit("Please select a video.")
-        #    return
-        #if self.running:
-        #    self.signal_manager.errorOccor.emit("Running process is already running.")
-        #    return
-        #if self.test_running:
-        #    self.signal_manager.errorOccor.emit("Test running process is already running.")
-        #    return
-        #if not self.have_face_database:
-        #    self.signal_manager.errorOccor.emit("Please select a database.")
-        #    return
-        #if self.params['det_size'].format(r"\d+x\d+") is None:
-        #    self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
-        #    return
-        #
-        #det_size = self.params['det_size'].format(r"\d+x\d+")
-        #det_size = tuple(map(int, det_size.split("x")))
-        #if det_size[0] < 0 or det_size[1] < 0:
-        #    self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
-        #    return
-        #
-        #print(f"Check time: {time.monotonic()-check_time} s")
-        #
-        #print(f"Test running with parameters: {self.params}")
-        #
-        #def test_run():
-        #    build_time = time.monotonic()
-        #    try:
-        #        self.fr = FaceRecognizer(det_size=det_size)
-        #        self.fdm.set_face_recognizer(self.fr)
-        #        self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-        #        self.fa = FaceAnalyzer()
-        #        self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
-        #    except Exception as e:
-        #        self.signal_manager.errorOccor.emit(str(e))
-        #        return
-        #    
-        #    print(f"Build time: {time.monotonic()-build_time} s")
-        #    
-        #    self.test_running = True
-        #    
-        #    transcribe_time = time.monotonic()
-        #    self.cur_process = "Transcribing"
-        #    self.cur_progress = 0
-        #    self.total_progress = 100
-        #    self.update_progress()
-        #    self.sm.transcribe(self.vm.get_video_path())
-        #    
-        #    print(f"Transcribe time: {time.monotonic()-transcribe_time} s")
-        #    
-        #    while self.test_running:
-        #        get_frame_time = time.monotonic()
-        #        try:
-        #            frame = self.vm.next_frame()
-        #        except Exception as e:
-        #            self.signal_manager.errorOccor.emit(str(e))
-        #            self.test_running = False
-        #            break
-        #        
-        #        print(f"Get frame time: {time.monotonic()-get_frame_time} s")
-        #        
-        #        resize_time = time.monotonic()
-        #        frame = cv2.resize(frame, (1280, 720)) # 16:9
-        #        print(f"Resize time: {time.monotonic()-resize_time} s")
-        #        recon_time = time.monotonic()
-        #        faces = self.fr.get(frame)
-        #        print(f"Recognition time: {time.monotonic()-recon_time} s")
-        #        process_time = time.monotonic()
-        #        bboxes = []
-        #        for i in range(len(faces)):
-        #            bbox = faces[i].bbox.astype(int).tolist()
-        #            bboxes.append(bbox)
-        #        names = []
-        #        for i in range(len(faces)):
-        #            name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False)
-        #            names.append(name)
-        #        self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
-        #        statuses = []
-        #        for i in range(len(faces)):
-        #            status = self.fa.is_talking(names[i])
-        #            statuses.append(status)
-        #        print(f"Process time: {time.monotonic()-process_time} s")
-        #        #time_s = self.vm.get_time()
-        #        
-        #        draw_time = time.monotonic()
-        #        # putting informations on the frame using cv2
-        #        for i in range(len(faces)):
-        #            cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
-        #            frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
-        #            frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-        #        print(f"Draw time: {time.monotonic()-draw_time} s")
-        #        cv2.imshow("Test Running", frame)
-        #        if cv2.waitKey(1) & 0xFF == ord('q'):
-        #            break
-        #        
-        #    self.test_running = False
-        #
-        #print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
-        #test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
-        subprocess.popen(f'python run.py --video_path {self.vm.get_video_path()} --script_path script.txt --database_dir {self.fdm.database_root} --output_dir records --model_name {self.params["whisper_model"]} --language {self.params["language"]} --prefix {self.params["new_member_prefix"]} --resolution {self.params["det_size"]}')
-        #
-        #self.test_run_thread = threading.Thread(target=test_run)
-        #self.test_run_thread.start()
-        
-    @QtCore.pyqtSlot()
-    def terminateProcess(self):
-        self.running = False
-        self.test_running = False
-        if self.test_run_thread:
-            self.test_run_thread.join()
-        if self.transcribe_thread:
-            self.transcribe_thread.join()
-        if self.main_thread:
-            self.main_thread.join()
-        
-    def save_record(self):
-        for key, _ in default_params.items():
-            self.record.set_parameter(key, self.params[key])
-        self.record.export()
-
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     with open("Darkeum.qss", "r") as f:
