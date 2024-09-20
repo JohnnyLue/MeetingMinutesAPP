@@ -5,6 +5,9 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 import threading
 import time
 from ffpyplayer.player import MediaPlayer
+import logging
+
+logger = logging.getLogger()
 
 def cv2_to_pixmap(cv2_img):
     cv2_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
@@ -77,9 +80,10 @@ class FileDropArea(QtWidgets.QWidget):
     def dropEvent(self, event: QtGui.QDropEvent):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         if len(files) > 1:
-            self.parent().signal_manager.errorOccor.emit("Please only select one video file.")
+            self.parent().open_error_dialog("Please only select one video file.")
             return
-        self.parent().signal_manager.selectedVideo.emit(files[0])
+        self.parent().si.send_signal("load_video")
+        self.parent().si.send_data(files[0])
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.LeftButton:
@@ -222,7 +226,7 @@ class ParamPanel(QtWidgets.QScrollArea):
     ParamPanel is a widget for setting parameters for the run.
     '''
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__()
         self.scroll_widget = QtWidgets.QWidget(self)
         self.grid_layout = QtWidgets.QGridLayout(self)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
@@ -231,6 +235,8 @@ class ParamPanel(QtWidgets.QScrollArea):
         self.param_widgets = []
         
     def update(self):
+        for _ in range(self.grid_layout.count()):
+            self.grid_layout.takeAt(0).widget().deleteLater()
         i, j = 0, 0
         for widget in self.param_widgets:
             self.grid_layout.addWidget(widget, i, j)
@@ -238,7 +244,8 @@ class ParamPanel(QtWidgets.QScrollArea):
             if j == 1:
                 i+=1
                 j=0
-        self.scroll_widget.resize(self.grid_layout.sizeHint())
+        logger.debug(f'new size: {self.size().width()} {self.size().height()}')
+        self.scroll_widget.resize(QtCore.QSize(50, 50))
         
     def add_param_widget_custom_value(self, name, default_value):
         '''
@@ -258,6 +265,7 @@ class ParamPanel(QtWidgets.QScrollArea):
         layout.addWidget(input)
         widget.setLayout(layout)
         self.param_widgets.append(widget)
+        self.update()
         
     def add_param_widget_choise_value(self, name, options):
         '''
@@ -278,9 +286,10 @@ class ParamPanel(QtWidgets.QScrollArea):
         layout.addWidget(input)
         widget.setLayout(layout)
         self.param_widgets.append(widget)
+        self.update()
         
     def on_change(self, name, new_value):
-        print(f"{name} change to {new_value}")
+        logger.info(f"{name} change to {new_value}")
         self.parent().alter_param(name, new_value)
         
 class MemberDetailWindow(QtWidgets.QDialog):
@@ -368,7 +377,6 @@ class MemberDetailWindow(QtWidgets.QDialog):
             self.scroll_widget.resize(QtCore.QSize(self.pic_scroll_area.size().width()-25, hei))
        
     def resizeEvent(self, event):
-        print('resize')
         self.update()
         
     def set_name(self, name):

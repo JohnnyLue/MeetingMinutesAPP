@@ -4,6 +4,7 @@ import cv2
 import logging
 import socket
 import time
+import threading
 
 from FaceAnalyzer import FaceAnalyzer
 from FaceDatabaseManager import FaceDatabaseManager
@@ -12,6 +13,7 @@ from Record import Record
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
 from Utils import *
+from SocketInterface import SocketInterface
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -143,29 +145,31 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
             vm.rewind(120)
     cv2.destroyAllWindows()
 
-class Backend(QtCore.QObject):
-    def __init__(self, signal_manager: SignalManager, record: Record):
+class Backend():
+    def __init__(self, record: Record):
         super().__init__()
-        self.signal_manager = signal_manager
+        self.si = SocketInterface()
+        self.si.imServer()
+                
         self.record = record
         self.params = {}
         
         # connect signals
-        self.signal_manager.selectedVideo.connect(self.set_video_path)
-        self.signal_manager.selectedDatabase.connect(self.set_database_path)
-        self.signal_manager.testRun.connect(self.test_run)
-        self.signal_manager.startProcess.connect(self.run)
-        self.signal_manager.terminateProcess.connect(self.terminateProcess)
-        self.signal_manager.alterParam.connect(self.set_param)
-        self.signal_manager.requestParams.connect(self.get_params)
-        self.signal_manager.requestProgress.connect(self.update_progress)
-        self.signal_manager.recordOverwriteConfirmed.connect(self.clear_record_and_run)
-        self.signal_manager.requestAllMemberImg.connect(self.get_all_member_img)
+        self.si.connect_signal("selectedVideo", self.set_video_path, True)
+        self.si.connect_signal("selectedDatabase", self.set_database_path, True)
+        self.si.connect_signal("testRun", self.test_run, False)
+        self.si.connect_signal("startProcess", self.run, False)
+        self.si.connect_signal("terminateProcess", self.terminateProcess, False)
+        self.si.connect_signal("alterParam", self.set_param, True)
+        self.si.connect_signal("requestParams", self.get_params, False)
+        self.si.connect_signal("requestProgress", self.update_progress, False)
+        self.si.connect_signal("recordOverwriteConfirmed", self.clear_record_and_run, False)
+        self.si.connect_signal("requestAllMemberImg", self.get_all_member_img, False)
         
         # parameters from record, if not recorded, use default
         for key, _ in default_params.items():
             #print(f"Get parameter {key} from record: {record.get_parameter(key)}")
-            self.set_param(key, record.get_parameter(key)) # if param is not set in record, get_parameter will return None, and set_param will use default value.
+            self.set_param((key, record.get_parameter(key))) # if param is not set in record, get_parameter will return None, and set_param will use default value.
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -180,30 +184,44 @@ class Backend(QtCore.QObject):
         self.cur_process = ""
         self.cur_progress = 0
         self.total_progress = 100
+        
+        def recv_loop():
+            while True:
+                type, data = self.si.receive()
+                if type is None:
+                    logger.error("Error occurred, exit.")
+                    self.terminateProcess()
+                    self.si.close()
+                    break
+                if type == "SIG" and data == "END_PROGRAM":
+                    self.terminateProcess()
+                    self.si.close()
+                    break
+                    
+        threading.Thread(target=recv_loop).start()
     
-    @QtCore.pyqtSlot()
     def run(self):
         if not self.vm.is_ready:
-            self.signal_manager.errorOccor.emit("Please select a video.")
+            self.raise_error("Please select a video.")
             return
         if self.running:
-            self.signal_manager.errorOccor.emit("Running process is already running.")
+            self.raise_error("Running process is already running.")
             return
         if self.test_running:
-            self.signal_manager.errorOccor.emit("正在測試執行，請終止之後再試。")
+            self.raise_error("Test running process is already running.")
             return
         if self.params['det_size'].format(r"\d+x\d+") is None:
-            self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
+            self.raise_error("Please set the detection size in correct format (format: 123x456).")
             return
         det_size = self.params['det_size'].format(r"\d+x\d+")
         det_size = tuple(map(int, det_size.split("x")))
         if det_size[0] < 0 or det_size[1] < 0:
-            self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
+            self.raise_error("Both value in det_size must be positive integer.")
         if not self.have_face_database:
-            self.signal_manager.errorOccor.emit("Please select a database.")
+            self.raise_error("Please select a database.")
             return
         if self.record.is_ready:
-            self.signal_manager.recordOverwrite.emit()
+            self.si.send_signal("recordOverwrite")
             return
         
         try:
@@ -213,7 +231,7 @@ class Backend(QtCore.QObject):
             self.fa = FaceAnalyzer()
             self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
         except Exception as e:
-            self.signal_manager.errorOccor.emit(str(e))
+            self.raise_error("Error occurred when setting up: " + str(e))
             return
         
         self.running = True
@@ -229,8 +247,9 @@ class Backend(QtCore.QObject):
             while self.running:
                 try:
                     frame = self.vm.next_frame()
-                except Exception as e:
-                    self.signal_manager.errorOccor.emit(str(e))
+                except:
+                    self.raise_error("Failed to get frame")
+                    logger.warning("Failed to get frame")
                     self.running = False
                     break
                 faces = self.fr.get(frame)
@@ -263,41 +282,42 @@ class Backend(QtCore.QObject):
         self.main_thread = threading.Thread(target=main_run)
         self.main_thread.start()
         
-    @QtCore.pyqtSlot()
     def clear_record_and_run(self):
         self.record.clear()
         self.run()
         
-    @QtCore.pyqtSlot(str)
     def set_video_path(self, video_path: str):
-        print(f"Set video path: {video_path}")
+        logger.info(f"Set video path: {video_path}")
         def func():
             try:
                 self.vm.load_video(video_path)
-            except Exception as e:
-                self.signal_manager.errorOccor.emit(str(e))
+            except:
+                self.raise_error("Failed to load video.")
         threading.Thread(target=func).start()
      
-    @QtCore.pyqtSlot(str)
     def set_database_path(self, database_path):
         self.fdm = FaceDatabaseManager(database_path)
         self.have_face_database = True
-        print(f"Set database path: {database_path}")
+        logger.info(f"Set database path: {database_path}")
     
-    @QtCore.pyqtSlot()
     def get_all_member_img(self):
         if not self.have_face_database:
-            self.signal_manager.errorOccor.emit("Please select a database.")
+            self.raise_error("Please select a database.")
             return
         
         names = self.fdm.get_name_list()
         for name in names:
             imgs = self.fdm.get_images_by_name(name)
             for img in imgs:
-                self.signal_manager.returnedMemberImg.emit(name, cv2_to_pixmap(img))
-        self.signal_manager.returnedMemberImg.emit("", QtGui.QPixmap()) # send a signal to tell all images are sent
-    
+                self.si.send_signal("returnedMemberImg")
+                self.si.send_data(name)
+                self.si.send_image(img)
+        self.si.send_signal("returnedMemberImg")
+        self.si.send_data("EOF") # end of data
+        self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
+         
     def get_params(self):
+        logger.debug("Request parameters")
         for key, _ in default_params.items():
             _key = key
             if _key in param_aliases:
@@ -309,39 +329,49 @@ class Backend(QtCore.QObject):
                         value_list.remove(self.params[key])
                         value_list.insert(0, self.params[key]) # insert it to the first element (show on screen)
                 value_list = [param_aliases[x] if x in param_aliases else x for x in value_list]
-                self.signal_manager.updateParam.emit(_key, value_list)
+                self.si.send_signal("updateParam")
+                self.si.send_data(_key)
+                self.si.send_data(value_list)
             else:
                 if key in self.params:
                     _value = self.params[key]
                 else:
                     _value = default_params[key]
                 _value = param_aliases[_value] if _value in param_aliases else _value
-                self.signal_manager.updateParam.emit(_key, [_value])
+                self.si.send_signal("updateParam")
+                self.si.send_data(_key)
+                self.si.send_data([_value])
     
     def update_progress(self):
         '''
         return current processing section and progress/total using tuple
         '''
         if not self.running:
-            self.signal_manager.updateProgress.emit("test", 15, 45)
+            self.si.send_signal("updateProgress")
+            self.si.send_data("Idle")
+            self.si.send_data(0)
+            self.si.send_data(0)
         else:
-            self.signal_manager.updateProgress.emit(self.cur_process, self.cur_progress, self.total_progress)
+            self.si.send_signal("updateProgress")
+            self.si.send_data(self.cur_process)
+            self.si.send_data(self.cur_progress)
+            self.si.send_data(self.total_progress)
     
-    @QtCore.pyqtSlot(str, str)
-    def set_param(self, param_name_alias, value_or_alias):
+    def set_param(self, name_value):
+        param_name, value = name_value
         inv_aliases = {v: k for k, v in param_aliases.items()}
-        name = inv_aliases[param_name_alias] if param_name_alias in inv_aliases else param_name_alias
-        if value_or_alias is None:
+        name = inv_aliases[param_name] if param_name in inv_aliases else param_name
+        if value is None:
             if default_params[name].count(",") > 0:
                 self.params[name] = default_params[name].split(",")[0]
-                print(f"Set parameter: {name} = {self.params[name]}")
+                logger.info(f"Set parameter: {name} = {self.params[name]}")
             else:
                 self.params[name] = default_params[name]
-                print(f"Set parameter: {name} = {default_params[name]}")
+                logger.info(f"Set parameter: {name} = {default_params[name]}")
         else:
-            value = inv_aliases[value_or_alias] if value_or_alias in inv_aliases else value_or_alias
+            value = inv_aliases[value] if value in inv_aliases else value
             self.params[name] = value
-            print(f"Set parameter: {name} = {value}")
+            logger.info(f"Set parameter: {name} = {value}")
         
     def test_run(self):
         #check_time = time.monotonic()
@@ -445,12 +475,14 @@ class Backend(QtCore.QObject):
         #
         #print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
         #test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
-        subprocess.popen(f'python run.py --video_path {self.vm.get_video_path()} --script_path script.txt --database_dir {self.fdm.database_root} --output_dir records --model_name {self.params["whisper_model"]} --language {self.params["language"]} --prefix {self.params["new_member_prefix"]} --resolution {self.params["det_size"]}')
-        #
+        run(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
         #self.test_run_thread = threading.Thread(target=test_run)
         #self.test_run_thread.start()
         
-    @QtCore.pyqtSlot()
+    def raise_error(self, error_message):
+        self.si.send_signal("errorOccor")
+        self.si.send_data(error_message)
+        
     def terminateProcess(self):
         self.running = False
         self.test_running = False
@@ -466,18 +498,5 @@ class Backend(QtCore.QObject):
             self.record.set_parameter(key, self.params[key])
         self.record.export()
 
-
 if __name__ == '__main__':
-    arg = argparse.ArgumentParser()
-    arg.add_argument("-v", "--video", required=True, help="path to video file")
-    arg.add_argument("-s", "--script", required=False, help="path to script file", default=None)
-    arg.add_argument("-d", "--database", required=False, help="path to database folder", default='database')
-    arg.add_argument("-o", "--output", required=False, help="path to folder storing output record", default='records')
-    arg.add_argument("-i", "--record", required=False, help="path to record file", default=None)
-    
-    arg.add_argument("-m", "--model", required=True, help="Name of the Whisper model")
-    arg.add_argument("-l", "--language", required=True, help="language of the script")
-    arg.add_argument("-p", "--prefix", required=True, help="prefix of new member")
-    arg.add_argument("-r", "--resolution", required=True, help="resolution of face detection") # format: WIDTHxHEIGHT
-    args = arg.parse_args()
-    run(args.video, args.script, args.database, args.output, args.record, args.model, args.language, args.prefix, args.resolution)
+    Backend(Record())

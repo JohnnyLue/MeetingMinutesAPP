@@ -1,13 +1,17 @@
 import cv2
 import logging
 import math
-import socket
 import sys
 import configparser
+import os
 
 from PyQt5 import QtWidgets, QtCore, QtGui
-from Utils import *
 from FrontEndWidgets import *
+from SocketInterface import SocketInterface
+
+
+#################################################################################
+# Set up logger
 
 logger = logging.getLogger()
 logger.handlers.clear()
@@ -15,129 +19,134 @@ logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
 	'[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
 	'%H:%M:%S')
-
 fileLogger = logging.FileHandler('log.txt', mode='w')
 fileLogger.setLevel(logging.DEBUG)
 fileLogger.setFormatter(formatter)
-
 streamLogger = logging.StreamHandler()
 streamLogger.setLevel(logging.DEBUG)
 streamLogger.setFormatter(formatter)
-
 logger.addHandler(fileLogger)
 logger.addHandler(streamLogger)
 
-class SocketInterface():
-    def __init__(self, host='localhost', port=8080, buffer_size=1024):
-        self.sock = None
-        self.host = host
-        self.port = port
-        self.buffer_size = buffer_size
-        self.conn = None
-        self.inited = False
-        self.isServer = False
-        self.isClient = False
-        
-    def imServer(self):
-        self.isClient = False
-        self.isServer = True
-        if self.inited:
-            self.inited = False
-            self.sock.close()
-            logger.info("Close previous server")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.bind((self.host, self.port))
-        self.sock.listen(1)
-        logger.info(f"Server listening on {self.host}:{self.port}")
-        self.inited = True        
-        
-    def accept_connection(self):
-        if not self.isServer:
-            logger.error("Not a server")
-            return
-        if self.conn is not None:
-            self.conn.close()
-            logger.info("Close previous connection")
-        conn, addr = self.sock.accept()
-        logger.info(f"Server connect with {addr}")
-        self.conn = conn
-        return conn, addr
-    
-    def imClient(self):
-        self.isClient = True
-        self.isServer = False
-        if self.inited:
-            self.inited = False
-            self.sock.close()
-            logger.info("Close previous client")
-        self.sock.connect((self.host, self.port))
-        logger.info(f"Client connected to {self.host}:{self.port}")
-        self.inited = True
-                
-    def send_signal(self, signal):
-        self.conn.sendall("SIG")
-        self.conn.sendall(f"{signal}")
-    
-    def send_data(self, data):
-        self.conn.sendall("DAT")
-        self.conn.sendall(f"{data}")
-        
-    def send_image(self, image):
-        self.conn.sendall("IMG")
-        _, image_data = cv2.imencode('.jpg', image)
-        self.send_data(image_data.tobytes())
-        
-    def receive(self):
-        tag = self.conn.recv(3).decode()
-        if tag == "SIG":
-            signal = self.conn.recv(self.buffer_size).decode()
-            return signal
-        elif tag == "DAT":
-            data = self.conn.recv(self.buffer_size).decode()
-            return data
-        elif tag == "IMG":
-            image_data = self.conn.recv(self.buffer_size)
-            image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
-            return image
-        else:
-            logger.error("Unknown type of data")
-        logger.debug(f"Received: {tag}")
-        
-
-class SignalManager(QtCore.QObject):
-    # Define signals
+#################################################################################
+# Define signals
+class SignalTable(QtCore.QObject):
     requestImgByName = QtCore.pyqtSignal(str) # 要求照片: 名字
     requestAllMemberImg = QtCore.pyqtSignal() # 要求全部照片
     returnedMemberImg = QtCore.pyqtSignal(str, QtGui.QPixmap) # 回傳名字, 照片
 
     selectedVideo = QtCore.pyqtSignal(str) # 選擇影片: 檔案位置
     selectedDatabase = QtCore.pyqtSignal(str) # 選擇資料庫: 
-    
+
     requestParams = QtCore.pyqtSignal() # 要求參數(全部)
     updateParam = QtCore.pyqtSignal(str, list) # 更新顯示參數: 參數名, 值 (可能是list)
     alterParam = QtCore.pyqtSignal(str, str) # 修改參數: 參數名, 值
-    
+
     requestProgress = QtCore.pyqtSignal() # 要求更新進度
     updateProgress = QtCore.pyqtSignal(str, int, int) # 任務, 進度, 總進度
-    
+
     testRun = QtCore.pyqtSignal() # 要求測試執行
     startProcess = QtCore.pyqtSignal() # 要求開始處理
     terminateProcess = QtCore.pyqtSignal() # 要求終止處理
     recordOverwrite = QtCore.pyqtSignal() # 要求確認是否覆蓋紀錄
     recordOverwriteConfirmed = QtCore.pyqtSignal() # 確認覆蓋紀錄
-    
+
     errorOccor = QtCore.pyqtSignal(str) # 錯誤訊息
     ProcessFinished = QtCore.pyqtSignal(str) # 任務完成: 紀錄檔位置
 
+signals = SignalTable()
+####################################################################################
+
+class loopThread(QtCore.QThread):
+    def __init__(self, si, parent=None):
+        super(loopThread, self).__init__(parent)
+        self.si = si
+        self.signals_pairs = {
+            "errorOccor": signals.errorOccor,
+            "recordOverwrite": self.recordOverwrite,
+            "selectedVideo": self.selectedVideo,
+            "returnedMemberImg": self.returnedMemberImg,
+            "updateParam": self.updateParam,
+            "updateProgress": self.updateProgress
+        }
+        self.require_data_count = {
+            "errorOccor": 1,
+            "recordOverwrite": 0,
+            "selectedVideo": 1,
+            "returnedMemberImg": 1,
+            "updateParam": 2,
+            "updateProgress": 3
+        }
+        
+    def run(self):
+        while True:
+            type, signal_name = self.si.receive() # if not buged, this will only receive signal type
+            if type != "SIG":
+                logger.error("Error, expected signal")
+                logger.debug(f"Recieve type: {type}, signal: {signal_name}")
+                self.si.close()
+                break
+            elif signal_name == "END_PROGRAM":
+                logger.info("Program terminated")
+                self.si.close()
+                break
+            else:
+                if self.signals_pairs[signal_name] is None:
+                    logger.error(f"Signal {signal_name} not defined")
+                    continue
+                
+                data = []
+                for _ in range(self.require_data_count[signal_name]):
+                    type, d = self.si.receive()
+                    if type != "DAT":
+                        logger.error("Error, expected data")
+                        self.si.close()
+                        break
+                    data.append(d)
+                logger.debug(f"Recieve signal: {signal_name}, data: {data}")
+                self.signals_pairs[signal_name].emit(*data)
+                    
 class MainWindow(QtWidgets.QWidget):
-    def __init__(self, signal_manager: SignalManager):
+    def __init__(self, host = 'localhost', port = 8080, buffer_size = 1024):
         super().__init__()
-        self.signal_manager = signal_manager
-        self.signal_manager.errorOccor.connect(self.open_error_dialog)
-        self.signal_manager.recordOverwrite.connect(self.open_check_overwrite_dialog)
-        self.signal_manager.selectedVideo.connect(self.switch_video_preview)
-        self.signal_manager.returnedMemberImg.connect(self.update_database_member_img)
-        self.signal_manager.updateParam.connect(self.recieved_param_value)
+        self.si = SocketInterface(host, port, buffer_size)
+        self.si.imClient()
+        self.signals_pairs = {
+            "errorOccor": signals.errorOccor,
+            "recordOverwrite": signals.recordOverwrite,
+            "selectedVideo": signals.selectedVideo,
+            "returnedMemberImg": signals.returnedMemberImg,
+            "updateParam": signals.updateParam,
+            "updateProgress": signals.updateProgress
+        }
+        self.require_data_count = {
+            "errorOccor": 1,
+            "recordOverwrite": 0,
+            "selectedVideo": 1,
+            "returnedMemberImg": 2,
+            "updateParam": 2,
+            "updateProgress": 3
+        }
+        
+        signals.errorOccor.connect(self.open_error_dialog)
+        signals.recordOverwrite.connect(self.open_check_overwrite_dialog)
+        signals.selectedVideo.connect(self.switch_video_preview)
+        signals.returnedMemberImg.connect(self.update_database_member_img)
+        signals.updateParam.connect(self.recieved_param_value)
+        
+        #self.loop_thread = loopThread(self.si)
+        #self.loop_thread.errorOccor.connect(self.open_error_dialog)
+        #self.loop_thread.recordOverwrite.connect(self.open_check_overwrite_dialog)
+        #self.loop_thread.selectedVideo.connect(self.switch_video_preview)
+        #self.loop_thread.returnedMemberImg.connect(self.update_database_member_img)
+        #self.loop_thread.updateParam.connect(self.recieved_param_value)
+        #self.loop_thread.start()
+        
+        #self.si.connect_signal("errorOccor", self.open_error_dialog, True)
+        #self.si.connect_signal("recordOverwrite", self.open_check_overwrite_dialog, False)
+        #self.si.connect_signal("selectedVideo", self.switch_video_preview, True)
+        #self.si.connect_signal("returnedMemberImg", self.update_database_member_img, True)
+        #self.si.connect_signal("updateParam", self.recieved_param_value, True)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
@@ -147,9 +156,48 @@ class MainWindow(QtWidgets.QWidget):
         
         self.have_video_preview = False
         self.member_name_imgs = {}
+                
+        threading.Thread(target=self.recv_loop).start()
+        self.si.send_signal("requestParams")
+        logger.debug("Requesting all parameters")
+        self.si.send_signal("requestProgress")
         
-        self.signal_manager.requestParams.emit()
-        self.signal_manager.requestProgress.emit()
+        
+    def recv_loop(self):
+        if not self.si.inited:
+            logger.warning("socket connection not created")
+        while True:
+            type, signal_name = self.si.receive() # if not buged, this will only receive signal type
+            if type != "SIG":
+                logger.error("Error, expected signal")
+                logger.debug(f"Recieve type: {type}, signal: {signal_name}")
+                self.si.close()
+                break
+            elif signal_name == "END_PROGRAM":
+                logger.info("Program terminated")
+                self.si.close()
+                break
+            else:
+                if self.signals_pairs[signal_name] is None:
+                    logger.error(f"Signal {signal_name} not defined")
+                    continue
+                
+                data = []
+                for _ in range(self.require_data_count[signal_name]):
+                    type, d = self.si.receive()
+                    if type == "SIG":
+                        logger.error("Expected data or image")
+                        self.si.close()
+                        break
+                    elif type == "IMG":
+                        logger.debug(f"Recieve image")
+                        pixmap = cv2_to_pixmap(d)
+                        data.append(pixmap)
+                    else:
+                        data.append(d)
+                logger.debug(f"Recieve signal: {signal_name}, data: {data}")
+                self.signals_pairs[signal_name].emit(*data)
+                #self.signals_pairs["errorOccor"].emit(signal_name)
         
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
@@ -183,7 +231,7 @@ class MainWindow(QtWidgets.QWidget):
         self.progress_percent.setFont(MyFont())
         progress_bar_layout.addWidget(self.progress_task)
         progress_bar_layout.addWidget(self.progress_bar)
-        self.signal_manager.updateProgress.connect(self.update_progress_bar)
+        signals.updateProgress.connect(self.update_progress_bar)
         video_and_progress_layout.addLayout(progress_bar_layout)
         layout.addLayout(video_and_progress_layout)
 
@@ -233,9 +281,9 @@ class MainWindow(QtWidgets.QWidget):
         execution_layout = QtWidgets.QVBoxLayout()
         execution_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.test_button = new_button("測試執行")
-        self.test_button.clicked.connect(self.signal_manager.testRun.emit)
+        self.test_button.clicked.connect(lambda: self.si.send_signal("testRun"))
         self.run_button = new_button("確認執行")
-        self.run_button.clicked.connect(self.signal_manager.startProcess.emit)
+        self.run_button.clicked.connect(lambda: self.si.send_signal("startProcess"))
         execution_layout.addWidget(self.test_button)
         execution_layout.addSpacing(20)
         execution_layout.addWidget(self.run_button)
@@ -244,19 +292,19 @@ class MainWindow(QtWidgets.QWidget):
     def resizeEvent(self, event):
         self.resize_database_widget()
     
-    @QtCore.pyqtSlot(str, QtGui.QPixmap)
     def update_database_member_img(self, name, pixmap):
-        if name == "": # all images are sent
+        if name == "EOF": # all images are sent
             self.resize_database_widget()
             self.db_scroll_widget.show()
+            logger.debug("All member images recieved")
             return
         
-        print(f"Update database member img: {name}")
         if name not in self.member_name_imgs:
             self.member_name_imgs[name] = []
             self.member_name_imgs[name].append(pixmap)
         else:
             self.member_name_imgs[name].append(pixmap)
+        logger.debug(f'Recieve member "{name}"\'s img')
         
     def resize_database_widget(self):
         cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
@@ -281,9 +329,11 @@ class MainWindow(QtWidgets.QWidget):
         hei = 110*math.ceil(len(self.member_name_imgs)/cols)
         if hei < self.db_scroll_area.size().height():
             self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-5, hei))
+            logger.debug(f"Resize db_scroll_widget to {(self.db_scroll_area.size().width()-5, hei)}")
         else:
             self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-25, hei))
-        
+            logger.debug(f"Resize db_scroll_widget to {(self.db_scroll_area.size().width()-25, hei)}")
+            
     def pop_member_detail_window(self, name):
         self.member_detail_window = MemberDetailWindow(self)
         self.member_detail_window.set_name(name)
@@ -300,14 +350,16 @@ class MainWindow(QtWidgets.QWidget):
                 for _ in range(len(self.member_name_imgs)):
                     self.db_grid_layout.takeAt(0).widget().deleteLater()
                 self.member_name_imgs = {}
-                self.signal_manager.selectedDatabase.emit(file_path)
-                self.signal_manager.requestAllMemberImg.emit()
+                self.si.send_signal("selectedDatabase")
+                self.si.send_data(file_path)
+                self.si.send_signal("requestAllMemberImg")
     
     def alter_param(self, name, value):
-        self.signal_manager.alterParam.emit(name, value)
+        self.si.send_signal("alterParam")
+        self.si.send_data((name, value))
     
-    @QtCore.pyqtSlot(str, int, int)
     def update_progress_bar(self, task, progress, total):
+        #task, progress, total = task_progress_total
         if task == "" or total == 0:
             self.progress_task.setText("目前沒有任務")
             self.progress_bar.setValue(0)
@@ -318,20 +370,28 @@ class MainWindow(QtWidgets.QWidget):
         self.progress_bar.setValue(int(progress/total*100))
         self.progress_percent.setText(f"{progress}/{total}")
         
-    @QtCore.pyqtSlot(str, list)
-    def recieved_param_value(self, name, value_list):
-        if name is None or value_list is None:
+    def recieved_param_value(self, name, values):
+        #name, values = name_values
+        logger.debug(f"Recieve param: {name}, values: {values}")
+        if name is None or values is None:
             return
-        if len(value_list) == 0:
+        if len(values) == 0:
             return
-        if len(value_list)>1:
-            self.param_panel.add_param_widget_choise_value(name, value_list)
+        if len(values)>1:
+            self.param_panel.add_param_widget_choise_value(name, values)
         else:
-            self.param_panel.add_param_widget_custom_value(name, value_list[0])
+            self.param_panel.add_param_widget_custom_value(name, values[0])
         self.param_panel.update()
 
-    @QtCore.pyqtSlot(str)
     def switch_video_preview(self, file_path: str):
+        if not isinstance(file_path, str) or file_path is None:
+            logger.warning("File path is not string")
+            return
+        if not os.path.exists(file_path):
+            logger.warning("File not found")
+            self.open_error_dialog("File not found")
+            return
+        
         if self.have_video_preview:
             self.video_preview.reset()
             self.video_preview.load(file_path)
@@ -361,24 +421,27 @@ class MainWindow(QtWidgets.QWidget):
         if video_file_dialog.exec_():
             file_path = video_file_dialog.selectedFiles()[0]
             if file_path:
-                self.signal_manager.selectedVideo.emit(file_path)
+                self.si.send_signal("selectedVideo")
+                self.si.send_data(file_path)
     
-    @QtCore.pyqtSlot()
     def open_check_overwrite_dialog(self):
         check_dialog = QtWidgets.QMessageBox(self)
         check_dialog.setWindowTitle("確認")
         check_dialog.setText("紀錄已存在，是否覆蓋？")
         check_dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
         if check_dialog.exec_() == QtWidgets.QMessageBox.StandardButton.Yes:
-            self.signal_manager.recordOverwriteConfirmed.emit()
+            self.si.send_signal("recordOverwriteConfirmed")
        
-    @QtCore.pyqtSlot(str)
     def open_error_dialog(self, message):
+        if not isinstance(message, str) or message is None:
+            logger.warning("Invalid error message")
+            return
         error_dialog = ErrorDialog(message)
         error_dialog.exec_()
         
     def closeEvent(self, event):
-        self.signal_manager.terminateProcess.emit()
+        self.si.send_signal("terminateProcess")
+        self.si.close()
         if self.have_video_preview:
             self.video_preview.reset()
         event.accept()
@@ -386,10 +449,7 @@ class MainWindow(QtWidgets.QWidget):
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     with open("Darkeum.qss", "r") as f:
-        app.setStyleSheet(f.read())
-    signal_manager = SignalManager()
-    record = Record(store_base='records')
-    backend = Backend(signal_manager, record)
-    main = MainWindow(signal_manager)
+        app.setStyleSheet(f.read())    
+    main = MainWindow()
     main.show()
     sys.exit(app.exec_())
