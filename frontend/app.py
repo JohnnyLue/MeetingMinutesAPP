@@ -83,7 +83,7 @@ class loopThread(QtCore.QThread):
             type, signal_name = self.si.receive() # if not buged, this will only receive signal type
             if type != "SIG":
                 logger.error("Error, expected signal")
-                logger.debug(f"Recieve type: {type}, signal: {signal_name}")
+                logger.debug(f"Receive type: {type}, signal: {signal_name}")
                 self.si.close()
                 break
             elif signal_name == "END_PROGRAM":
@@ -103,7 +103,7 @@ class loopThread(QtCore.QThread):
                         self.si.close()
                         break
                     data.append(d)
-                logger.debug(f"Recieve signal: {signal_name}, data: {data}")
+                logger.debug(f"Receive signal: {signal_name}, data: {data}")
                 self.signals_pairs[signal_name].emit(*data)
                     
 class MainWindow(QtWidgets.QWidget):
@@ -132,21 +132,21 @@ class MainWindow(QtWidgets.QWidget):
         signals.recordOverwrite.connect(self.open_check_overwrite_dialog)
         signals.selectedVideo.connect(self.switch_video_preview)
         signals.returnedMemberImg.connect(self.update_database_member_img)
-        signals.updateParam.connect(self.recieved_param_value)
+        signals.updateParam.connect(self.received_param_value)
         
         #self.loop_thread = loopThread(self.si)
         #self.loop_thread.errorOccor.connect(self.open_error_dialog)
         #self.loop_thread.recordOverwrite.connect(self.open_check_overwrite_dialog)
         #self.loop_thread.selectedVideo.connect(self.switch_video_preview)
         #self.loop_thread.returnedMemberImg.connect(self.update_database_member_img)
-        #self.loop_thread.updateParam.connect(self.recieved_param_value)
+        #self.loop_thread.updateParam.connect(self.received_param_value)
         #self.loop_thread.start()
         
         #self.si.connect_signal("errorOccor", self.open_error_dialog, True)
         #self.si.connect_signal("recordOverwrite", self.open_check_overwrite_dialog, False)
         #self.si.connect_signal("selectedVideo", self.switch_video_preview, True)
         #self.si.connect_signal("returnedMemberImg", self.update_database_member_img, True)
-        #self.si.connect_signal("updateParam", self.recieved_param_value, True)
+        #self.si.connect_signal("updateParam", self.received_param_value, True)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
@@ -157,29 +157,28 @@ class MainWindow(QtWidgets.QWidget):
         self.have_video_preview = False
         self.member_name_imgs = {}
                 
-        threading.Thread(target=self.recv_loop).start()
+        threading.Thread(target=self.receiving_loop).start()
         self.si.send_signal("requestParams")
         logger.debug("Requesting all parameters")
         self.si.send_signal("requestProgress")
         
         
-    def recv_loop(self):
+    def receiving_loop(self):
         if not self.si.inited:
             logger.warning("socket connection not created")
         while True:
             type, signal_name = self.si.receive() # if not buged, this will only receive signal type
             if type != "SIG":
-                logger.error("Error, expected signal")
-                logger.debug(f"Recieve type: {type}, signal: {signal_name}")
+                logger.error(f'Error, expect to receive signal, not "{type}"')
                 self.si.close()
                 break
             elif signal_name == "END_PROGRAM":
-                logger.info("Program terminated")
+                logger.info("Recvive terminate signal")
                 self.si.close()
                 break
-            else:
+            else: # signal type is "signal" and signal_name is not "END_PROGRAM"
                 if self.signals_pairs[signal_name] is None:
-                    logger.error(f"Signal {signal_name} not defined")
+                    logger.warning(f"Signal {signal_name} not defined, ignored")
                     continue
                 
                 data = []
@@ -189,15 +188,13 @@ class MainWindow(QtWidgets.QWidget):
                         logger.error("Expected data or image")
                         self.si.close()
                         break
-                    elif type == "IMG":
-                        logger.debug(f"Recieve image")
+                    elif type == "IMG": # receive image
+                        logger.debug(f"Receive image")
                         pixmap = cv2_to_pixmap(d)
                         data.append(pixmap)
                     else:
-                        data.append(d)
-                logger.debug(f"Recieve signal: {signal_name}, data: {data}")
-                self.signals_pairs[signal_name].emit(*data)
-                #self.signals_pairs["errorOccor"].emit(signal_name)
+                        data.append(d) # receive data
+                self.signals_pairs[signal_name].emit(*data) # emit qt signal with data
         
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
@@ -296,7 +293,7 @@ class MainWindow(QtWidgets.QWidget):
         if name == "EOF": # all images are sent
             self.resize_database_widget()
             self.db_scroll_widget.show()
-            logger.debug("All member images recieved")
+            logger.debug("All member images received")
             return
         
         if name not in self.member_name_imgs:
@@ -304,7 +301,7 @@ class MainWindow(QtWidgets.QWidget):
             self.member_name_imgs[name].append(pixmap)
         else:
             self.member_name_imgs[name].append(pixmap)
-        logger.debug(f'Recieve member "{name}"\'s img')
+        logger.debug(f'Receive member "{name}"\'s img')
         
     def resize_database_widget(self):
         cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
@@ -337,7 +334,7 @@ class MainWindow(QtWidgets.QWidget):
     def pop_member_detail_window(self, name):
         self.member_detail_window = MemberDetailWindow(self)
         self.member_detail_window.set_name(name)
-        self.member_detail_window.set_member_imgs(self.member_name_imgs[name])
+        self.member_detail_window.set_imgs(self.member_name_imgs[name])
         self.member_detail_window.exec_()
         
     def select_database_dialog(self):
@@ -370,9 +367,9 @@ class MainWindow(QtWidgets.QWidget):
         self.progress_bar.setValue(int(progress/total*100))
         self.progress_percent.setText(f"{progress}/{total}")
         
-    def recieved_param_value(self, name, values):
+    def received_param_value(self, name, values):
         #name, values = name_values
-        logger.debug(f"Recieve param: {name}, values: {values}")
+        logger.debug(f"Receive param: {name}, values: {values}")
         if name is None or values is None:
             return
         if len(values) == 0:
@@ -401,18 +398,20 @@ class MainWindow(QtWidgets.QWidget):
             self.video_area.addWidget(self.video_preview)
             self.have_video_preview = True
             
-            control_layout = QtWidgets.QHBoxLayout()
-            control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.video_rewind_button = new_button("後退")
-            self.video_rewind_button.clicked.connect(lambda: self.video_preview.rewind(5))
-            self.video_pause_button = new_button("播放")
-            self.video_pause_button.clicked.connect(lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停")))
-            self.video_forward_button = new_button("前進")
-            self.video_forward_button.clicked.connect(lambda: self.video_preview.forward(5))
-            control_layout.addWidget(self.video_rewind_button)
-            control_layout.addWidget(self.video_pause_button)
-            control_layout.addWidget(self.video_forward_button)
-            self.video_area.addLayout(control_layout)
+            #control_layout = QtWidgets.QHBoxLayout()
+            #control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            #self.video_rewind_button = new_button("後退")
+            #self.video_rewind_button.clicked.connect(lambda: self.video_preview.rewind(1000))
+            #self.video_pause_button = new_button("播放")
+            #self.video_pause_button.clicked.connect(lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停")))
+            #self.video_forward_button = new_button("前進")
+            #self.video_forward_button.clicked.connect(lambda: self.video_preview.forward(1000))
+            #control_layout.addWidget(self.video_rewind_button)
+            #control_layout.addWidget(self.video_pause_button)
+            #control_layout.addWidget(self.video_forward_button)
+            #self.video_area.addLayout(control_layout)
+            video_control = VideoControlPanel(self, self.video_preview)
+            self.video_area.addWidget(video_control)
         self.video_preview.play()
         
     def open_select_video_dialog(self):

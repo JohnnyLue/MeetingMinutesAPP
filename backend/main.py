@@ -287,18 +287,19 @@ class Backend():
         self.run()
         
     def set_video_path(self, video_path: str):
-        logger.info(f"Set video path: {video_path}")
-        def func():
-            try:
-                self.vm.load_video(video_path)
-            except:
-                self.raise_error("Failed to load video.")
-        threading.Thread(target=func).start()
+        logger.info(f"Set video path:\n\"{video_path}\"")
+        try:
+            self.vm.load_video(video_path)
+            # echo back to the sender
+            self.si.send_signal("selectedVideo")
+            self.si.send_data(video_path)
+        except:
+            self.raise_error("Failed to load video.")
      
     def set_database_path(self, database_path):
         self.fdm = FaceDatabaseManager(database_path)
         self.have_face_database = True
-        logger.info(f"Set database path: {database_path}")
+        logger.info(f"Set database path:\n\"{database_path}\"")
     
     def get_all_member_img(self):
         if not self.have_face_database:

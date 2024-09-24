@@ -64,7 +64,6 @@ class SocketInterface():
         self.comm = self.sock
                 
     def send_signal(self, signal):
-        logger.debug(f"Send signal: {signal}")
         if not self.inited:
             logger.warning("Not initialized")
             return
