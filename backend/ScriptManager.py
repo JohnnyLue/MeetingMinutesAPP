@@ -14,7 +14,7 @@ class ScriptManager:
         logger.info("ScriptManager initialized")
     
     def transcribe(self, audio_path:str):
-        logger.info("Transcribing...")
+        logger.info("Start transcription")
         start_time = time.time()
         self.lock = True
         _result = whisper.transcribe(self.model, audio_path, language=self.lang, verbose=False)

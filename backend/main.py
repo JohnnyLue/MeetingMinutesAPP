@@ -1,7 +1,9 @@
 import argparse
 import configparser
 import cv2
+import glob
 import logging
+import os
 import socket
 import time
 import threading
@@ -146,12 +148,11 @@ def run(video_path, script_path, database_dir, output_dir, record_path, model_na
     cv2.destroyAllWindows()
 
 class Backend():
-    def __init__(self, record: Record):
+    def __init__(self):
         super().__init__()
         self.si = SocketInterface()
         self.si.imServer()
                 
-        self.record = record
         self.params = {}
         
         # connect signals
@@ -166,24 +167,21 @@ class Backend():
         self.si.connect_signal("recordOverwriteConfirmed", self.clear_record_and_run, False)
         self.si.connect_signal("requestAllMemberImg", self.get_all_member_img, False)
         
-        # parameters from record, if not recorded, use default
-        for key, _ in default_params.items():
-            #print(f"Get parameter {key} from record: {record.get_parameter(key)}")
-            self.set_param((key, record.get_parameter(key))) # if param is not set in record, get_parameter will return None, and set_param will use default value.
-        
         # create ViedoManager first for video preview
         self.vm = VideoManager()
+        self.record = None
         
         self.running = False
         self.test_running = False
         self.have_face_database = False
         self.transcribe_thread = None
-        self.main_thread = None
+        self.run_thread = None
         self.test_run_thread = None
         
         self.cur_process = ""
         self.cur_progress = 0
         self.total_progress = 100
+        self.update_progress_lock = False
         
         def recv_loop():
             while True:
@@ -201,49 +199,92 @@ class Backend():
         threading.Thread(target=recv_loop).start()
     
     def run(self):
-        if not self.vm.is_ready:
-            self.raise_error("Please select a video.")
-            return
         if self.running:
             self.raise_error("Running process is already running.")
             return
         if self.test_running:
             self.raise_error("Test running process is already running.")
             return
+        
+        self.cur_process = "Checking parameters..."
+        self.cur_progress = 0
+        self.total_progress = 5
+        self.update_progress()
+        if not self.vm.is_ready:
+            self.raise_error("Please select a video.")
+            return
+        self.cur_progress+=1
+        self.update_progress()
         if self.params['det_size'].format(r"\d+x\d+") is None:
             self.raise_error("Please set the detection size in correct format (format: 123x456).")
             return
+        self.cur_progress+=1
+        self.update_progress()
         det_size = self.params['det_size'].format(r"\d+x\d+")
         det_size = tuple(map(int, det_size.split("x")))
         if det_size[0] < 0 or det_size[1] < 0:
             self.raise_error("Both value in det_size must be positive integer.")
+            return
+        self.cur_progress+=1
+        self.update_progress()
         if not self.have_face_database:
             self.raise_error("Please select a database.")
             return
+        self.cur_progress+=1
+        self.update_progress()
         if self.record.is_ready:
             self.si.send_signal("recordOverwrite")
             return
+        self.cur_progress+=1
+        self.update_progress()
         
+        self.cur_process = "Setting up..."
+        self.cur_progress = 0
+        self.total_progress = 5
+        self.update_progress()
         try:
             self.fr = FaceRecognizer(det_size=det_size)
+            self.cur_progress+=1
+            self.update_progress()
+            
             self.fdm.set_face_recognizer(self.fr)
+            self.cur_progress+=1
+            self.update_progress()
+            
             self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
+            self.cur_progress+=1
+            self.update_progress()
+            
             self.fa = FaceAnalyzer()
+            self.cur_progress+=1
+            self.update_progress()
+            
             self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
+            self.cur_progress+=1
+            self.update_progress()
         except Exception as e:
             self.raise_error("Error occurred when setting up: " + str(e))
+            self.cur_process = "Idle"
+            self.cur_progress = 0
+            self.total_progress = 0
+            self.update_progress()
             return
         
         self.running = True
         
-        self.cur_process = "Transcribing"
+        self.cur_process = "Transcribing..."
         self.cur_progress = 0
-        self.total_progress = 100
+        self.total_progress = 0
         self.update_progress()
-        self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
-        self.transcribe_thread.start()
+        #self.sm.transcribe(self.vm.get_video_path())
+        #self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
+        #self.transcribe_thread.start()
         
         def main_run():
+            self.cur_process = "Running..."
+            self.total_progress = self.vm.get_total_frame()
+            self.cur_progress = 0
+            self.update_progress()
             while self.running:
                 try:
                     frame = self.vm.next_frame()
@@ -275,12 +316,27 @@ class Backend():
                 #print(f"bboxes: {bboxes}")
                 #print(f"Names: {names}")
                 #print(f"Statuses: {statuses}")
+                self.cur_progress+=1
+                self.update_progress()
                 
+            self.cur_process = "Done"
+            self.cur_progress = 0
+            self.total_progress = 0
+            self.update_progress()
+            
             self.running = False
             self.save_record()
         
-        self.main_thread = threading.Thread(target=main_run)
-        self.main_thread.start()
+        self.run_thread = threading.Thread(target=main_run)
+        self.run_thread.start()
+        
+    def get_record_list(self):
+        files = glob.glob(os.path.join(config['STORE_DIR']['RECORD'], '*.json'))
+        logger.debug(files)
+        return files
+        
+    def load_or_create_record(self, record_path):
+        self.record = Record(record_path, config['STORE_DIR']['RECORD'])
         
     def clear_record_and_run(self):
         self.record.clear()
@@ -288,6 +344,10 @@ class Backend():
         
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")
+        self.cur_process = f"Slected video"
+        self.cur_progress = 0
+        self.total_progress = 0
+        self.update_progress()
         try:
             self.vm.load_video(video_path)
             # echo back to the sender
@@ -295,6 +355,10 @@ class Backend():
             self.si.send_data(video_path)
         except:
             self.raise_error("Failed to load video.")
+            self.cur_process = "Idle"
+            self.cur_progress = 0
+            self.total_progress = 0
+            self.update_progress()
      
     def set_database_path(self, database_path):
         self.fdm = FaceDatabaseManager(database_path)
@@ -347,16 +411,13 @@ class Backend():
         '''
         return current processing section and progress/total using tuple
         '''
-        if not self.running:
-            self.si.send_signal("updateProgress")
-            self.si.send_data("Idle")
-            self.si.send_data(0)
-            self.si.send_data(0)
-        else:
-            self.si.send_signal("updateProgress")
-            self.si.send_data(self.cur_process)
-            self.si.send_data(self.cur_progress)
-            self.si.send_data(self.total_progress)
+        if self.update_progress_lock:
+            return
+        logger.debug(f"Update progress: {str(self.cur_process)} {str(self.cur_progress)}/{str(self.total_progress)}")
+        self.si.send_signal("updateProgress")
+        self.si.send_data(self.cur_process)
+        self.si.send_data(self.cur_progress)
+        self.si.send_data(self.total_progress)        
     
     def set_param(self, name_value):
         param_name, value = name_value
@@ -487,12 +548,28 @@ class Backend():
     def terminateProcess(self):
         self.running = False
         self.test_running = False
-        if self.test_run_thread:
+        
+        self.cur_process = "Terminating process..."
+        self.cur_progress = 0
+        self.total_progress = 0
+        self.update_progress()
+        self.update_progress_lock = True
+        
+        if self.test_run_thread is not None:
             self.test_run_thread.join()
-        if self.transcribe_thread:
+            self.test_run_thread = None
+        if self.transcribe_thread is not None:
             self.transcribe_thread.join()
-        if self.main_thread:
-            self.main_thread.join()
+            self.transcribe_thread = None
+        if self.run_thread is not None:
+            self.run_thread.join()
+            self.run_thread = None
+            
+        self.update_progress_lock = False
+        self.cur_process = "Idle"
+        self.cur_progress = 0
+        self.total_progress = 0
+        self.update_progress()
         
     def save_record(self):
         for key, _ in default_params.items():
@@ -500,4 +577,4 @@ class Backend():
         self.record.export()
 
 if __name__ == '__main__':
-    Backend(Record())
+    Backend()

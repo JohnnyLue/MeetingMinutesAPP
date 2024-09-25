@@ -334,31 +334,37 @@ class VideoControlPanel(QtWidgets.QWidget):
             logger.error('video_player is None')
             return
         self.video_player = video_player
-        self.is_pressed = False
         self.setFixedWidth(640)
         
         outer_layout = QtWidgets.QVBoxLayout()
         outer_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
-        layout = QtWidgets.QHBoxLayout()
+        btn_time_layout = QtWidgets.QHBoxLayout()
+        btn_time_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
+        btn_time_layout = QtWidgets.QHBoxLayout()
         self.rewind_button = new_button("倒帶")
+        self.rewind_button.setFixedWidth(100)
         self.rewind_button.clicked.connect(self.rewind)
-        layout.addWidget(self.rewind_button)
+        btn_time_layout.addWidget(self.rewind_button)
 
         self.play_button = new_button("播放")
+        self.play_button.setFixedWidth(100)
         self.play_button.clicked.connect(self.play)
-        layout.addWidget(self.play_button)
+        btn_time_layout.addWidget(self.play_button)
         
         self.forward_button = new_button("快進")
+        self.forward_button.setFixedWidth(100)
         self.forward_button.clicked.connect(self.forward)
-        layout.addWidget(self.forward_button)
+        btn_time_layout.addWidget(self.forward_button)
         
+        btn_time_layout.addStretch(1)
+                
         self.time_label = QtWidgets.QLabel("00:00:00 / 00:00:00", self)
         self.time_label.setFont(MyFont())
-        layout.addWidget(self.time_label)
+        btn_time_layout.addWidget(self.time_label)
         
-        outer_layout.addLayout(layout)
+        outer_layout.addLayout(btn_time_layout)
         
         self.slider = VideoTimeSlider(self, video_player)
         
@@ -368,7 +374,7 @@ class VideoControlPanel(QtWidgets.QWidget):
         
         def update_thread():
             while True:
-                time.sleep(0.1)
+                time.sleep(0.5) # update time every 0.5 second
                 if self.video_player.is_paused:
                     continue
                 self.update_time()
@@ -404,7 +410,7 @@ class VideoTimeSlider(QtWidgets.QSlider):
         self.setValue(0)
         self.pressed = False
         
-    def is_paused(self):
+    def is_pressed(self):
         return self.pressed
         
     def mousePressEvent(self, event):
@@ -422,7 +428,6 @@ class VideoTimeSlider(QtWidgets.QSlider):
         
     def mouseReleaseEvent(self, event):
         self.pressed = False
-        pass
 
 class ParamPanel(QtWidgets.QScrollArea):
     '''

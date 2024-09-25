@@ -15,15 +15,22 @@ class Record:
         self.is_ready = False
         
         if file_path is not None:
-            if self._check_format(file_path):
-                logger.info(f"Load record file {file_path}")
-                self.load(file_path)
-            else:
-                logger.error("Invalid record file format, record initialization failed")
-                return
+            if os.path.exists(file_path):
+                if self._check_format(file_path):
+                    if not os.path.exists(file_path):
+                        logger.info("Create new record")
+                        self.path = self.__generate_path()
+                    logger.info(f"Load record file {file_path}")
+                    self.load(file_path)
+                else:
+                    logger.error("Invalid record file format, record initialization failed")
+                    return
+            elif file_path.endswith(".json"):
+                self.path = file_path
         else:
             logger.info("Create new record")
             self.path = self.__generate_path()
+            
         logger.info(f"Record initialized, record file: {self.path}")
     
     def clear(self):
@@ -33,6 +40,9 @@ class Record:
         self.is_ready = False
     
     def load(self, file_path):
+        if not self._check_format(file_path):
+            logger.error(f"Invalid record file, cannot load: {file_path}")
+            return
         with open(file_path, "r") as file:
             json_data = json.load(file)
             self.parameters = json_data["parameters"]
@@ -52,16 +62,10 @@ class Record:
         return self.parameters[key]
     
     def get_script(self):
-        if self.is_ready:
-            logger.debug("Get script from record")
-            return self.script
-        return None
+        return self.script
     
     def get_data(self):
-        if self.is_ready:
-            logger.debug("Get data from record")
-            return self.data
-        return None
+        return self.data
     
     def write_data(self, time_s, bboxes, names, statuses):
         self.data[time_s] = {"bbox": bboxes, "names": names, "statuses": statuses}
@@ -71,35 +75,33 @@ class Record:
         self.script = script_result
         
     def export(self, file_path = None):
-        if file_path:
+        if not self.is_ready:
+            logger.error("Record is not ready")
+            return
+        if file_path is not None:
             try:
-                if os.path.exists(file_path):
-                    input_str = input(f"Record::export: File {file_path} already exists. Overwrite? (y/n) ")
-                    if input_str.lower() != "y":
-                        return None
-                with open(file_path, "w") as file:
-                    json.dump({"parameters": self.parameters, "data": self.data}, file)
-            except:
-                raise Exception("Record::export: Cannot export record file")
-            return file_path
-        else:
-            try:
-                if os.path.exists(self.path):
-                    input_str = input(f"Record::export: File {self.path} already exists. Overwrite? (y/n) ")
-                    if input_str.lower() != "y":
-                        return None
-                if self.parameters and self.data and self.script:
+                if len(self.parameters) > 0 and len(self.data) > 1 and len(self.script) > 1:
                     with open(self.path, "w") as file:
                         json.dump({"parameters": self.parameters, "data": self.data, "script": self.script}, file)
-                else:
-                    raise
             except:
                 raise Exception("Record::export: Cannot export record file")
-            return self.path
+            return
+        else:
+            try:
+                if len(self.parameters) > 0 and len(self.data) > 1 and len(self.script) > 1:
+                    with open(self.path, "w") as file:
+                        json.dump({"parameters": self.parameters, "data": self.data, "script": self.script}, file)
+            except:
+                logger.error("Cannot export record file")
+                return
+        return
     
     def _check_format(self, file_path: str):
-        if not os.path.isfile(file_path) or not file_path.endswith(".json"):
+        if not file_path.endswith(".json"):
             logger.error(f"File not exist or not a json file: {file_path}")
+            return False
+        if not os.path.exists(file_path):
+            logger.error(f"File not exist: {file_path}")
             return False
         try:
             with open(file_path, "r") as file:

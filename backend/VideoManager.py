@@ -77,7 +77,7 @@ class VideoManager:
     def next_frame(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
-            return
+            return None
         
         ret, self.frame = self.cap.read()
         if not ret or self.frame is None:
@@ -142,6 +142,13 @@ class VideoManager:
             return 0
         
         return round(self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000, 1)
+    
+    def get_total_frame(self):
+        if not self.is_ready:
+            logger.warning('Initialization is not done.')
+            return 0
+        
+        return self.total_frames
     
     def save_video(self, path = ''):
         if not self.is_ready:

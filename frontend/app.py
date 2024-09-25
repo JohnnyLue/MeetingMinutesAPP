@@ -88,6 +88,7 @@ class loopThread(QtCore.QThread):
                 break
             elif signal_name == "END_PROGRAM":
                 logger.info("Program terminated")
+                self.updateProgress.emit("Terminated.", 0, 0)
                 self.si.close()
                 break
             else:
@@ -162,7 +163,6 @@ class MainWindow(QtWidgets.QWidget):
         logger.debug("Requesting all parameters")
         self.si.send_signal("requestProgress")
         
-        
     def receiving_loop(self):
         if not self.si.inited:
             logger.warning("socket connection not created")
@@ -211,22 +211,17 @@ class MainWindow(QtWidgets.QWidget):
                 
         # Progress Bar for Visualization
         progress_bar_layout = QtWidgets.QVBoxLayout()
-        self.progress_task = QtWidgets.QLabel("", self)
-        self.progress_task.setFixedWidth(640)
-        self.progress_task.setFixedHeight(20)
-        self.progress_task.setFont(MyFont())
-        self.progress_task.setAlignment(QtCore.Qt.AlignCenter)
+        self.progress_text = QtWidgets.QLabel("", self)
+        self.progress_text.setFixedWidth(640)
+        self.progress_text.setFixedHeight(40)
+        self.progress_text.setFont(MyFont())
+        self.progress_text.setAlignment(QtCore.Qt.AlignCenter)
         self.progress_bar = QtWidgets.QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setFixedWidth(640)
         self.progress_bar.setFixedHeight(20)
         self.progress_bar.setTextVisible(False)
-        self.progress_percent = QtWidgets.QLabel("", self.progress_bar)
-        self.progress_percent.setFixedWidth(640)
-        self.progress_percent.setFixedHeight(20)
-        self.progress_percent.setAlignment(QtCore.Qt.AlignCenter)
-        self.progress_percent.setFont(MyFont())
-        progress_bar_layout.addWidget(self.progress_task)
+        progress_bar_layout.addWidget(self.progress_text)
         progress_bar_layout.addWidget(self.progress_bar)
         signals.updateProgress.connect(self.update_progress_bar)
         video_and_progress_layout.addLayout(progress_bar_layout)
@@ -281,9 +276,13 @@ class MainWindow(QtWidgets.QWidget):
         self.test_button.clicked.connect(lambda: self.si.send_signal("testRun"))
         self.run_button = new_button("確認執行")
         self.run_button.clicked.connect(lambda: self.si.send_signal("startProcess"))
+        self.terminate_button = new_button("終止處理")
+        self.terminate_button.clicked.connect(self.terminate_process)
         execution_layout.addWidget(self.test_button)
         execution_layout.addSpacing(20)
         execution_layout.addWidget(self.run_button)
+        execution_layout.addSpacing(20)
+        execution_layout.addWidget(self.terminate_button)
         layout.addLayout(execution_layout)
     
     def resizeEvent(self, event):
@@ -357,15 +356,19 @@ class MainWindow(QtWidgets.QWidget):
     
     def update_progress_bar(self, task, progress, total):
         #task, progress, total = task_progress_total
-        if task == "" or total == 0:
-            self.progress_task.setText("目前沒有任務")
+        logger.debug(f"update progress bar: {task}, {progress}, {total}")
+        if task == "":
+            self.progress_text.setText(f"目前沒有任務")
             self.progress_bar.setValue(0)
-            self.progress_percent.setText("")
             return
         
-        self.progress_task.setText(task)
-        self.progress_bar.setValue(int(progress/total*100))
-        self.progress_percent.setText(f"{progress}/{total}")
+        if total == 0:
+            self.progress_text.setText(task)
+            self.progress_bar.setValue(0)
+            return
+        
+        self.progress_text.setText(f"{task} ({str(progress)}/{str(total)})")
+        self.progress_bar.setValue(int((progress/total)*100))
         
     def received_param_value(self, name, values):
         #name, values = name_values
@@ -437,6 +440,9 @@ class MainWindow(QtWidgets.QWidget):
             return
         error_dialog = ErrorDialog(message)
         error_dialog.exec_()
+        
+    def terminate_process(self):
+        self.si.send_signal("terminateProcess")
         
     def closeEvent(self, event):
         self.si.send_signal("terminateProcess")
