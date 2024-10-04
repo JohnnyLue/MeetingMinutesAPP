@@ -188,6 +188,12 @@ class Backend():
                 bboxes = []
                 for i in range(len(faces)):
                     bbox = faces[i].bbox.astype(int).tolist()
+                    logger.debug(f"{bbox}")
+                    bbox[0] /= self.vm.width
+                    bbox[1] /= self.vm.height
+
+                    bbox[2] /= self.vm.width
+                    bbox[3] /= self.vm.height
                     bboxes.append(bbox)
                 names = []
                 valid_faces = []
@@ -206,16 +212,18 @@ class Backend():
                     statuses.append(status)
                     
                 time_s = self.vm.get_time()
+                frame_idx = self.vm.get_cur_frame_idx()
                 
                 if not test:
-                    self.record.write_data(time_s, bboxes, names, statuses)
+                    self.record.write_data(frame_idx, bboxes, names, statuses)
                     
                 #draw on frame
                 for i in range(len(valid_faces)):
-                    cv2.rectangle(frame, (bboxes[i][0], bboxes[i][1]), (bboxes[i][2], bboxes[i][3]), (0, 255, 0), 2)
-                    frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
-                    frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-                    frame = PutText(frame, self.sm.get_script_by_time(time_s), (0, 0))
+                    x1, y1, x2, y2 = bboxes[i]
+                    cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0) if statuses[i] else (225, 0, 0), 5)
+                    frame = PutText(frame, "Not Found" if not names[i] else names[i], (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
+                    frame = PutText(frame, self.sm.get_script_by_time(time_s), (0, 0), fontScale=50)
+
                 self.si.send_signal("updateRuntimeImg")
                 self.si.send_image(cv2.resize(frame, (640, 360))) # 640*360
                 
@@ -252,7 +260,7 @@ class Backend():
         
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")
-        self.cur_process = f"Slected video: \"{os.path.basename(video_path)}\""
+        self.cur_process = f"Selected video: \"{os.path.basename(video_path)}\""
         self.cur_progress = 0
         self.total_progress = 0
         self.update_progress()

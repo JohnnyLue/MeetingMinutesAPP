@@ -27,6 +27,7 @@ class VideoManager:
         if video_path != 0:
             self.load_video(video_path)
             
+        self.cur_frame_idx = 0
         logger.info('VideoManager initialized.')
         
     def load_video(self, video_path):
@@ -36,6 +37,14 @@ class VideoManager:
             self.cap.release()
         self.is_ready = False
         self.cur_time = 0.0
+        self.total_frames = 0
+        self.total_time = 0.0
+        self.file_name = ''
+        self.codec = ''
+        self.fps = 0
+        self.width = 0
+        self.height = 0
+        self.cur_frame_idx = 0
         
         if not os.path.exists(video_path):
             logger.warning('Video not exist.')
@@ -83,9 +92,14 @@ class VideoManager:
         if not ret or self.frame is None:
             logger.warning('Read frame failed.')
             return None
-        
+
+        self.cur_frame_idx += 1
+
         return self.frame
     
+    def get_cur_frame_idx(self):
+        return self.cur_frame_idx
+
     def get_frame(self):
         '''
         get the current frame by time, won't update current time

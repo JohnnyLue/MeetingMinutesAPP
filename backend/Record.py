@@ -64,8 +64,8 @@ class Record:
     def get_data(self):
         return self.data
     
-    def write_data(self, time_s, bboxes, names, statuses):
-        self.data[time_s] = {"bbox": bboxes, "names": names, "statuses": statuses}
+    def write_data(self, frame_idx, bboxes, names, statuses):
+        self.data[frame_idx] = {"bbox": bboxes, "names": names, "statuses": statuses}
         
     def write_script(self, script_result):
         logger.info("Write script to record")
