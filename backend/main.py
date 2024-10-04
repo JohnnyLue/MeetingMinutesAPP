@@ -40,113 +40,6 @@ streamLogger.setFormatter(formatter)
 logger.addHandler(fileLogger)
 logger.addHandler(streamLogger)
 
-def run(video_path, script_path, database_dir, output_dir, record_path, model_name, language, prefix, resolution):
-    init_time = time.monotonic()
-    det_size = resolution.split('x')
-    record = Record(record_path, output_dir)
-    fr = FaceRecognizer(det_size=(int(det_size[0]), int(det_size[1]))) # 偵測不到人臉可以改看看
-    fdm = FaceDatabaseManager(database_dir, fr, new_member_prefix=prefix)
-    fa = FaceAnalyzer()
-    vm = VideoManager(video_path=video_path)
-    sm = ScriptManager(model_name, language)
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    init_time = time.monotonic() - init_time
-    logger.debug(f'init time: {init_time} s')
-    
-    if script_path is not None:
-        try:
-            # 載入字幕
-            sm.load_script_file(script_path)
-        except:
-            # 生成字幕
-            script_time = time.monotonic()
-            sm.transcribe(vm.get_video_path())
-            sm.save_script_file('script.txt')
-            script_time = time.monotonic() - script_time
-            logger.debug(f'script time: {script_time} s')
-    else:
-        # 生成字幕
-        script_time = time.monotonic()
-        sm.transcribe(vm.get_video_path())
-        sm.save_script_file('script.txt')
-        script_time = time.monotonic() - script_time
-        logger.debug(f'script time: {script_time} s')
-
-    #fdm.generate_embeddings(True) # 重新生成臉部特徵
-    process_time = time.monotonic() # 計算總處理時間
-    start_time = time.monotonic() # 算fps用的
-    counter = 0 # 算fps用的
-    paused = False
-    while not vm.is_end():
-        get_frame_time = time.monotonic()
-        if not paused:
-            frame = vm.next_frame()
-        else:
-            frame = vm.get_frame() # 暫停時的畫面
-        if frame is None:
-            break
-        frame = cv2.resize(frame, (1280, 720)) # 16:9
-        get_frame_time = time.monotonic() - get_frame_time
-        #logger.debug(f'get frame time: {get_frame_time}s')
-        
-        # 偵測、分析臉部
-        detect_time = time.monotonic()
-        faces = fr.get_faces(frame)
-        bboxes = []
-        for i in range(len(faces)):
-            bbox = faces[i].bbox.astype(int).tolist()
-            bboxes.append(bbox)
-        names = []
-        for i in range(len(faces)):
-            name = fr.get_name(frame, faces[i], fdm, create_new_face=True)
-            names.append(name)
-        logger.debug(f'Found names: {names}')
-        name_lmk = zip(names, [fr.get_landmark(x) for x in faces])
-        name_lmk = [x for x in name_lmk if x[0] is not None]
-        fa.update(name_lmk)
-        statuses = []
-        for i in range(len(faces)):
-            status = fa.is_talking(names[i])
-            statuses.append(status)
-        logger.debug(f'Statuses: {statuses}')
-        detect_time = time.monotonic() - detect_time
-        #logger.debug(f'detect time: {detect_time}s')
-        
-        # 顯示
-        show_time = time.monotonic()
-        for i in range(len(faces)):
-            cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
-            frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
-            frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-            frame = PutText(frame, sm.get_script_by_time(vm.get_time()), (0, 0))
-            #'time_s': vm.get_time(), 'bbox': bboxes, 'name': names, 'status': statuses
-            #requests.post('http://localhost:5000/frame', json={'frame': frame.tolist()})
-            #s.bind(('localhost', 12345))
-        cv2.imshow('frame', frame)
-        show_time = time.monotonic() - show_time
-        #logger.debug(f'show time: {show_time}s')
-        
-        # 計算fps
-        counter += 1
-        if counter % 30 == 0:
-            now_time = time.monotonic()
-            fps = 30 / (now_time - start_time)
-            start_time = now_time
-            logger.debug(f'fps: {fps}')
-        
-        logger.debug(' ')
-        
-        # 暫停
-        if cv2.waitKey(1) & 0xFF == ord(' '):
-            paused = not paused
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        if cv2.waitKey(1) & 0xFF == ord('d'):
-            vm.forward(120)
-        if cv2.waitKey(1) & 0xFF == ord('a'):
-            vm.rewind(120)
-    cv2.destroyAllWindows()
-
 class Backend():
     def __init__(self):
         super().__init__()
@@ -158,8 +51,8 @@ class Backend():
         # connect signals
         self.si.connect_signal("selectedVideo", self.set_video_path, True)
         self.si.connect_signal("selectedDatabase", self.set_database_path, True)
-        self.si.connect_signal("testRun", self.test_run, False)
-        self.si.connect_signal("startProcess", self.run, False)
+        self.si.connect_signal("testRun", lambda: self.run(True), False)
+        self.si.connect_signal("startProcess", lambda: self.run(False), False)
         self.si.connect_signal("terminateProcess", self.terminateProcess, False)
         self.si.connect_signal("alterParam", self.set_param, True)
         self.si.connect_signal("requestParams", self.get_params, False)
@@ -198,7 +91,7 @@ class Backend():
                     
         threading.Thread(target=recv_loop).start()
     
-    def run(self):
+    def run(self, test=False):
         if self.running:
             self.raise_error("Running process is already running.")
             return
@@ -206,9 +99,12 @@ class Backend():
             self.raise_error("Test running process is already running.")
             return
         
+        if self.record is None:
+            self.load_or_create_record()
+        
         self.cur_process = "Checking parameters..."
         self.cur_progress = 0
-        self.total_progress = 5
+        self.total_progress = 4
         self.update_progress()
         if not self.vm.is_ready:
             self.raise_error("Please select a video.")
@@ -229,11 +125,6 @@ class Backend():
         self.update_progress()
         if not self.have_face_database:
             self.raise_error("Please select a database.")
-            return
-        self.cur_progress+=1
-        self.update_progress()
-        if self.record.is_ready:
-            self.si.send_signal("recordOverwrite")
             return
         self.cur_progress+=1
         self.update_progress()
@@ -280,7 +171,7 @@ class Backend():
         #self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
         #self.transcribe_thread.start()
         
-        def main_run():
+        def main_run(test):
             self.cur_process = "Running..."
             self.total_progress = self.vm.get_total_frame()
             self.cur_progress = 0
@@ -293,29 +184,46 @@ class Backend():
                     logger.warning("Failed to get frame")
                     self.running = False
                     break
-                faces = self.fr.get(frame)
+                faces = self.fr.get_faces(frame)
                 bboxes = []
                 for i in range(len(faces)):
                     bbox = faces[i].bbox.astype(int).tolist()
                     bboxes.append(bbox)
                 names = []
+                valid_faces = []
                 for i in range(len(faces)):
-                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=True)
+                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False if test else True)
+                    if name is None:
+                        continue
                     names.append(name)
+                    valid_faces.append(faces[i])
                     
-                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
+                self.fa.update(zip(names, [self.fr.get_landmark(x) for x in valid_faces]))
+                
                 statuses = []
-                for i in range(len(faces)):
+                for i in range(len(valid_faces)):
                     status = self.fa.is_talking(names[i])
                     statuses.append(status)
                     
                 time_s = self.vm.get_time()
                 
-                self.record.write_data(time_s, bboxes, names, statuses)
+                if not test:
+                    self.record.write_data(time_s, bboxes, names, statuses)
+                    
+                #draw on frame
+                for i in range(len(valid_faces)):
+                    cv2.rectangle(frame, (bboxes[i][0], bboxes[i][1]), (bboxes[i][2], bboxes[i][3]), (0, 255, 0), 2)
+                    frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
+                    frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
+                    frame = PutText(frame, self.sm.get_script_by_time(time_s), (0, 0))
+                self.si.send_signal("updateRuntimeImg")
+                self.si.send_image(cv2.resize(frame, (640, 360))) # 640*360
+                
                 #print(f"Recorded at {time_s} s")
                 #print(f"bboxes: {bboxes}")
                 #print(f"Names: {names}")
                 #print(f"Statuses: {statuses}")
+                cv2.waitKey(10)
                 self.cur_progress+=1
                 self.update_progress()
                 
@@ -327,7 +235,7 @@ class Backend():
             self.running = False
             self.save_record()
         
-        self.run_thread = threading.Thread(target=main_run)
+        self.run_thread = threading.Thread(target=main_run, args=(test,))
         self.run_thread.start()
         
     def get_record_list(self):
@@ -335,16 +243,16 @@ class Backend():
         logger.debug(files)
         return files
         
-    def load_or_create_record(self, record_path):
+    def load_or_create_record(self, record_path = None):
         self.record = Record(record_path, config['STORE_DIR']['RECORD'])
         
     def clear_record_and_run(self):
         self.record.clear()
-        self.run()
+        # TODO
         
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")
-        self.cur_process = f"Slected video"
+        self.cur_process = f"Slected video: \"{os.path.basename(video_path)}\""
         self.cur_progress = 0
         self.total_progress = 0
         self.update_progress()
@@ -393,6 +301,7 @@ class Backend():
                     if self.params[key] in value_list:
                         value_list.remove(self.params[key])
                         value_list.insert(0, self.params[key]) # insert it to the first element (show on screen)
+                self.params[key] = value_list[0]
                 value_list = [param_aliases[x] if x in param_aliases else x for x in value_list]
                 self.si.send_signal("updateParam")
                 self.si.send_data(_key)
@@ -402,6 +311,7 @@ class Backend():
                     _value = self.params[key]
                 else:
                     _value = default_params[key]
+                self.params[key] = _value
                 _value = param_aliases[_value] if _value in param_aliases else _value
                 self.si.send_signal("updateParam")
                 self.si.send_data(_key)
@@ -435,112 +345,6 @@ class Backend():
             self.params[name] = value
             logger.info(f"Set parameter: {name} = {value}")
         
-    def test_run(self):
-        #check_time = time.monotonic()
-        #if not self.vm.is_ready:
-        #    self.signal_manager.errorOccor.emit("Please select a video.")
-        #    return
-        #if self.running:
-        #    self.signal_manager.errorOccor.emit("Running process is already running.")
-        #    return
-        #if self.test_running:
-        #    self.signal_manager.errorOccor.emit("Test running process is already running.")
-        #    return
-        #if not self.have_face_database:
-        #    self.signal_manager.errorOccor.emit("Please select a database.")
-        #    return
-        #if self.params['det_size'].format(r"\d+x\d+") is None:
-        #    self.signal_manager.errorOccor.emit("Please set the detection size in correct format (format: 123x456).")
-        #    return
-        #
-        #det_size = self.params['det_size'].format(r"\d+x\d+")
-        #det_size = tuple(map(int, det_size.split("x")))
-        #if det_size[0] < 0 or det_size[1] < 0:
-        #    self.signal_manager.errorOccor.emit("Both value in det_size must be positive integer.")
-        #    return
-        #
-        #print(f"Check time: {time.monotonic()-check_time} s")
-        #
-        #print(f"Test running with parameters: {self.params}")
-        #
-        #def test_run():
-        #    build_time = time.monotonic()
-        #    try:
-        #        self.fr = FaceRecognizer(det_size=det_size)
-        #        self.fdm.set_face_recognizer(self.fr)
-        #        self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-        #        self.fa = FaceAnalyzer()
-        #        self.sm = ScriptManager(model_name=self.params['whisper_model'], language=self.params['language'])
-        #    except Exception as e:
-        #        self.signal_manager.errorOccor.emit(str(e))
-        #        return
-        #    
-        #    print(f"Build time: {time.monotonic()-build_time} s")
-        #    
-        #    self.test_running = True
-        #    
-        #    transcribe_time = time.monotonic()
-        #    self.cur_process = "Transcribing"
-        #    self.cur_progress = 0
-        #    self.total_progress = 100
-        #    self.update_progress()
-        #    self.sm.transcribe(self.vm.get_video_path())
-        #    
-        #    print(f"Transcribe time: {time.monotonic()-transcribe_time} s")
-        #    
-        #    while self.test_running:
-        #        get_frame_time = time.monotonic()
-        #        try:
-        #            frame = self.vm.next_frame()
-        #        except Exception as e:
-        #            self.signal_manager.errorOccor.emit(str(e))
-        #            self.test_running = False
-        #            break
-        #        
-        #        print(f"Get frame time: {time.monotonic()-get_frame_time} s")
-        #        
-        #        resize_time = time.monotonic()
-        #        frame = cv2.resize(frame, (1280, 720)) # 16:9
-        #        print(f"Resize time: {time.monotonic()-resize_time} s")
-        #        recon_time = time.monotonic()
-        #        faces = self.fr.get(frame)
-        #        print(f"Recognition time: {time.monotonic()-recon_time} s")
-        #        process_time = time.monotonic()
-        #        bboxes = []
-        #        for i in range(len(faces)):
-        #            bbox = faces[i].bbox.astype(int).tolist()
-        #            bboxes.append(bbox)
-        #        names = []
-        #        for i in range(len(faces)):
-        #            name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False)
-        #            names.append(name)
-        #        self.fa.update(zip(names, [self.fr.get_landmark(x) for x in faces]))
-        #        statuses = []
-        #        for i in range(len(faces)):
-        #            status = self.fa.is_talking(names[i])
-        #            statuses.append(status)
-        #        print(f"Process time: {time.monotonic()-process_time} s")
-        #        #time_s = self.vm.get_time()
-        #        
-        #        draw_time = time.monotonic()
-        #        # putting informations on the frame using cv2
-        #        for i in range(len(faces)):
-        #            cv2.rectangle(frame, tuple(bboxes[i][:2]), tuple(bboxes[i][2:]), (0, 255, 0), 2)
-        #            frame = PutText(frame, "Not Found" if not names[i] else names[i], (bboxes[i][0], bboxes[i][1]-10))
-        #            frame = PutText(frame, "Talking" if statuses[i] else "Slient", (bboxes[i][0], bboxes[i][3]+20))
-        #        print(f"Draw time: {time.monotonic()-draw_time} s")
-        #        cv2.imshow("Test Running", frame)
-        #        if cv2.waitKey(1) & 0xFF == ord('q'):
-        #            break
-        #        
-        #    self.test_running = False
-        #
-        #print(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
-        #test_run_p.run(video_path=self.vm.get_video_path(), script_path='script.txt', database_dir=self.fdm.database_root, output_dir='records', record_path=None, model_name=self.params['whisper_model'], language=self.params['language'], prefix=self.params['new_member_prefix'], resolution=self.params['det_size'])
-        run(self.vm.get_video_path(), 'script.txt', self.fdm.database_root, 'records', None, self.params['whisper_model'], self.params['language'], self.params['new_member_prefix'], self.params['det_size'])
-        #self.test_run_thread = threading.Thread(target=test_run)
-        #self.test_run_thread.start()
-        
     def raise_error(self, error_message):
         self.si.send_signal("errorOccor")
         self.si.send_data(error_message)
@@ -572,6 +376,8 @@ class Backend():
         self.update_progress()
         
     def save_record(self):
+        if self.record is None:
+            return
         for key, _ in default_params.items():
             self.record.set_parameter(key, self.params[key])
         self.record.export()

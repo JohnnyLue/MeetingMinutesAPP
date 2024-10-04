@@ -96,14 +96,15 @@ class VideoPlayer(QtWidgets.QLabel):
         self.quit_loop = False
         self.cap = None
         self.play_thread = None
-        self.buffer_thread = None
-        self.video_buffer = []
-        self.buf_paused = False
         self.lock_read = True
+        self.total_time = 0
+        self.cur_time = 0
         self.load(video_path)
         self.setFixedSize(640, 360)
     
     def mousePressEvent(self, event):
+        if self.quit_loop:
+            return
         if event.button() == QtCore.Qt.LeftButton:
             self.pause()
         
@@ -112,39 +113,42 @@ class VideoPlayer(QtWidgets.QLabel):
 
     def load(self, path):
         self.quit_loop = False
+        self.lock_read = True
         self.cap = cv2.VideoCapture(path)
         self.update(cv2_to_pixmap(self.cap.read()[1]))
         self.audio = MediaPlayer(path, ff_opts={'vn': 1, 'sn': 1, 'paused': 1, 'sync': 'audio'})
         
-        self.video_buffer = []
-        self.start_buffer()
         logger.debug(f'''Video loaded:
 fps:{int(self.cap.get(cv2.CAP_PROP_FPS))}
 frame count:{int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))}
 video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}''')
+        self.total_time = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
         self.lock_read = False
 
-    def reset(self):
+    def close(self):
         self.lock_read = True
         self.quit_loop = True
         self.play_thread.join()
-        self.buffer_thread.join()
         self.cap.release()
-        self.buffer_clean()
-        self.audio.close_player()
+        #self.audio.close_player()
+        self.cap = None
+        self.audio = None
+        logger.debug('Video player closed')
 
     def pause(self):
+        if self.quit_loop:
+            return
         self.is_paused = not self.is_paused
         self.audio.toggle_pause()
         logger.debug(f'pause: {self.is_paused}')
 
     def forward(self, seconds):
+        if self.quit_loop:
+            return
         ori_state = self.is_paused
         self.is_paused = True
-        self.buf_paused = True
         self.audio.set_pause(1)
         time.sleep(0.1) # wait for thread to pause
-        self.video_buffer = []
         
         logger.debug(f'current time: {self.audio.get_pts() * 1000}')
         new_time = (self.audio.get_pts() + seconds) * 1000
@@ -163,7 +167,6 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         if not ret:
             logger.debug('End of video')
             self.is_paused = True
-            self.buf_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
@@ -179,18 +182,17 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.update(pFrame)
         
         self.is_paused = ori_state
-        self.buf_paused = False
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'forward {seconds} seconds')
     
     def rewind(self, seconds):
+        if self.quit_loop:
+            return
         ori_state = self.is_paused
         self.is_paused = True
-        self.buf_paused = True
         self.audio.set_pause(1)
         time.sleep(0.1) # wait for thread to pause
-        self.video_buffer = []
         
         logger.debug(f'current time: {self.audio.get_pts() * 1000}')
         new_time = (self.audio.get_pts() - seconds) * 1000
@@ -209,7 +211,6 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         if not ret:
             logger.debug('End of video')
             self.is_paused = True
-            self.buf_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
             self.lock_read = True
@@ -227,12 +228,13 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.update(pFrame)
         
         self.is_paused = ori_state
-        self.buf_paused = False
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'rewind {seconds} seconds')
         
     def set_time(self, new_time):
+        if self.quit_loop:
+            return
         if new_time < 0:
             new_time = 0
         elif new_time > self.get_total_time_s():
@@ -240,10 +242,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             
         ori_state = self.is_paused
         self.is_paused = True
-        self.buf_paused = True
         self.audio.set_pause(1)
         time.sleep(0.1) # wait for thread to pause
-        self.video_buffer = []
         
         self.lock_read = True
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time*1000)
@@ -254,7 +254,6 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         if not ret:
             logger.debug('End of video')
             self.is_paused = True
-            self.buf_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
             self.lock_read = True
@@ -272,20 +271,26 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.update(pFrame)
         
         self.is_paused = ori_state
-        self.buf_paused = False
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'set time to {new_time} second')
         
     def get_time(self):
-        while self.lock_read:
-            time.sleep(0.1)
-        return self.audio.get_pts()
+        if self.quit_loop:
+            return -1
+        if self.lock_read:
+            return -1
+        if self.cur_time < 0:
+            return -1
+        return self.cur_time
     
     def get_total_time_s(self):
-        while self.lock_read:
-            time.sleep(0.1)
-        return self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
+        if self.quit_loop:
+            return -1
+        if self.lock_read:
+            logger.debug('lock_read is True')
+            return -1
+        return self.total_time
     
     def play(self):
         def func():
@@ -293,8 +298,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             while True:
                 if self.quit_loop:
                     break
-                if not self.is_paused: #and len(self.video_buffer) > 10:
-                    #pFrame = self.video_buffer.pop(0)
+                if not self.is_paused:
                     ret, frame = self.cap.read()
                     if not ret:
                         logger.debug('End of video')
@@ -307,24 +311,12 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
                     if abs(audio_time - cap_time) > 100: # Adjust video time to audio time
                         self.cap.set(cv2.CAP_PROP_POS_MSEC, audio_time)
                     self.update(pFrame)
+                    self.cur_time = audio_time / 1000
                     time.sleep(delay)
-                    
+        
+        logger.debug('Start playing video')
         self.play_thread = threading.Thread(target=func)
         self.play_thread.start()
-        
-    def start_buffer(self):
-        def buffer():
-            while True:
-                if self.quit_loop:
-                    break
-                if len(self.video_buffer) < 200 and not self.buf_paused:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        continue
-                    self.video_buffer.append(cv2_to_pixmap(frame))
-                    
-        self.buffer_thread = threading.Thread(target=buffer)
-        #self.buffer_thread.start()
 
 class VideoControlPanel(QtWidgets.QWidget):
     def __init__(self, parent=None, video_player=None):
@@ -371,12 +363,12 @@ class VideoControlPanel(QtWidgets.QWidget):
         outer_layout.addWidget(self.slider)
         
         self.setLayout(outer_layout)
+                
+        self.run = True
         
         def update_thread():
-            while True:
+            while self.run:
                 time.sleep(0.5) # update time every 0.5 second
-                if self.video_player.is_paused:
-                    continue
                 self.update_time()
         threading.Thread(target=update_thread).start()
         
@@ -387,6 +379,9 @@ class VideoControlPanel(QtWidgets.QWidget):
         else:
             self.play_button.setText("暫停")
         
+    def close(self):
+        self.run = False
+        
     def forward(self):
         self.video_player.forward(10)
         
@@ -396,6 +391,8 @@ class VideoControlPanel(QtWidgets.QWidget):
     def update_time(self):
         cur_time = self.video_player.get_time()
         total_time = self.video_player.get_total_time_s()
+        if cur_time == -1 or total_time == -1:
+            return
         self.time_label.setText(f'{time.strftime("%H:%M:%S", time.gmtime(cur_time))} / {time.strftime("%H:%M:%S", time.gmtime(total_time))}')
         if not self.slider.is_pressed():
             self.slider.setValue(cur_time)

@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger()
 
 class FaceAnalyzer:
-    def __init__(self, value_window_size = 20):
+    def __init__(self, value_window_size = 50):
         self.name_open_value_dict = {}
         self.value_window_size = value_window_size
         logger.info("FaceAnalyzer initialized")
@@ -28,7 +28,10 @@ class FaceAnalyzer:
         
         values = self.name_open_value_dict[name]
         med = np.median(values)
-        
+        max = np.max(values)
+        min = np.min(values)
+        logger.debug(f"Name \"{name}\" median: {med}, max: {max}, min: {min}")
+        logger.debug(f"values: {values}")
         ### visualize in cmd
         #for name in self.name_open_value_dict.keys():
         #print(name)
@@ -54,15 +57,16 @@ class FaceAnalyzer:
             while len(self.name_open_value_dict[name]) >= self.value_window_size:
                 self.name_open_value_dict[name].pop(0) # pop first value
                 
+        names = []
         for name, lmk in name_lmks:
-            logger.debug(f"Updating {name}'s data")
-            if name not in self.name_open_value_dict:
+            if name not in self.name_open_value_dict.keys():
                 self.name_open_value_dict[name] = []
-                
             self.name_open_value_dict[name].append(self.mouth_open(lmk))
+            names.append(name)
             
-        names = [x[0] for x in name_lmks]
+        logger.debug(f"Names: {names}")
         for name in self.name_open_value_dict.keys():
+            logger.debug(f"Name: {name}")
             if name not in names:
+                logger.debug(f"add -1 ")
                 self.name_open_value_dict[name].append(-1) # absent person
-        logger.debug("FaceAnalyzer updated")

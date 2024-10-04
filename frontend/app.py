@@ -48,6 +48,9 @@ class SignalTable(QtCore.QObject):
     testRun = QtCore.pyqtSignal() # 要求測試執行
     startProcess = QtCore.pyqtSignal() # 要求開始處理
     terminateProcess = QtCore.pyqtSignal() # 要求終止處理
+    
+    updateRuntimeImg = QtCore.pyqtSignal(QtGui.QPixmap) # 接收即時照片
+    
     recordOverwrite = QtCore.pyqtSignal() # 要求確認是否覆蓋紀錄
     recordOverwriteConfirmed = QtCore.pyqtSignal() # 確認覆蓋紀錄
 
@@ -56,56 +59,6 @@ class SignalTable(QtCore.QObject):
 
 signals = SignalTable()
 ####################################################################################
-
-class loopThread(QtCore.QThread):
-    def __init__(self, si, parent=None):
-        super(loopThread, self).__init__(parent)
-        self.si = si
-        self.signals_pairs = {
-            "errorOccor": signals.errorOccor,
-            "recordOverwrite": self.recordOverwrite,
-            "selectedVideo": self.selectedVideo,
-            "returnedMemberImg": self.returnedMemberImg,
-            "updateParam": self.updateParam,
-            "updateProgress": self.updateProgress
-        }
-        self.require_data_count = {
-            "errorOccor": 1,
-            "recordOverwrite": 0,
-            "selectedVideo": 1,
-            "returnedMemberImg": 1,
-            "updateParam": 2,
-            "updateProgress": 3
-        }
-        
-    def run(self):
-        while True:
-            type, signal_name = self.si.receive() # if not buged, this will only receive signal type
-            if type != "SIG":
-                logger.error("Error, expected signal")
-                logger.debug(f"Receive type: {type}, signal: {signal_name}")
-                self.si.close()
-                break
-            elif signal_name == "END_PROGRAM":
-                logger.info("Program terminated")
-                self.updateProgress.emit("Terminated.", 0, 0)
-                self.si.close()
-                break
-            else:
-                if self.signals_pairs[signal_name] is None:
-                    logger.error(f"Signal {signal_name} not defined")
-                    continue
-                
-                data = []
-                for _ in range(self.require_data_count[signal_name]):
-                    type, d = self.si.receive()
-                    if type != "DAT":
-                        logger.error("Error, expected data")
-                        self.si.close()
-                        break
-                    data.append(d)
-                logger.debug(f"Receive signal: {signal_name}, data: {data}")
-                self.signals_pairs[signal_name].emit(*data)
                     
 class MainWindow(QtWidgets.QWidget):
     def __init__(self, host = 'localhost', port = 8080, buffer_size = 1024):
@@ -118,7 +71,8 @@ class MainWindow(QtWidgets.QWidget):
             "selectedVideo": signals.selectedVideo,
             "returnedMemberImg": signals.returnedMemberImg,
             "updateParam": signals.updateParam,
-            "updateProgress": signals.updateProgress
+            "updateProgress": signals.updateProgress,
+            "updateRuntimeImg": signals.updateRuntimeImg
         }
         self.require_data_count = {
             "errorOccor": 1,
@@ -126,7 +80,8 @@ class MainWindow(QtWidgets.QWidget):
             "selectedVideo": 1,
             "returnedMemberImg": 2,
             "updateParam": 2,
-            "updateProgress": 3
+            "updateProgress": 3,
+            "updateRuntimeImg": 1
         }
         
         signals.errorOccor.connect(self.open_error_dialog)
@@ -134,20 +89,8 @@ class MainWindow(QtWidgets.QWidget):
         signals.selectedVideo.connect(self.switch_video_preview)
         signals.returnedMemberImg.connect(self.update_database_member_img)
         signals.updateParam.connect(self.received_param_value)
-        
-        #self.loop_thread = loopThread(self.si)
-        #self.loop_thread.errorOccor.connect(self.open_error_dialog)
-        #self.loop_thread.recordOverwrite.connect(self.open_check_overwrite_dialog)
-        #self.loop_thread.selectedVideo.connect(self.switch_video_preview)
-        #self.loop_thread.returnedMemberImg.connect(self.update_database_member_img)
-        #self.loop_thread.updateParam.connect(self.received_param_value)
-        #self.loop_thread.start()
-        
-        #self.si.connect_signal("errorOccor", self.open_error_dialog, True)
-        #self.si.connect_signal("recordOverwrite", self.open_check_overwrite_dialog, False)
-        #self.si.connect_signal("selectedVideo", self.switch_video_preview, True)
-        #self.si.connect_signal("returnedMemberImg", self.update_database_member_img, True)
-        #self.si.connect_signal("updateParam", self.received_param_value, True)
+        signals.updateProgress.connect(self.update_progress_bar)
+        signals.updateRuntimeImg.connect(self.update_runtime_img)
         
         self.setObjectName("MainWindow")
         self.setWindowTitle('操作頁面')
@@ -156,6 +99,7 @@ class MainWindow(QtWidgets.QWidget):
         self.ui()
         
         self.have_video_preview = False
+        self.have_runtime_preview = False
         self.member_name_imgs = {}
                 
         threading.Thread(target=self.receiving_loop).start()
@@ -223,7 +167,6 @@ class MainWindow(QtWidgets.QWidget):
         self.progress_bar.setTextVisible(False)
         progress_bar_layout.addWidget(self.progress_text)
         progress_bar_layout.addWidget(self.progress_bar)
-        signals.updateProgress.connect(self.update_progress_bar)
         video_and_progress_layout.addLayout(progress_bar_layout)
         layout.addLayout(video_and_progress_layout)
 
@@ -355,8 +298,11 @@ class MainWindow(QtWidgets.QWidget):
         self.si.send_data((name, value))
     
     def update_progress_bar(self, task, progress, total):
-        #task, progress, total = task_progress_total
         logger.debug(f"update progress bar: {task}, {progress}, {total}")
+        if self.progress_bar is None or self.progress_text is None:
+            logger.warning("Progress bar not initialized")
+            return
+        
         if task == "":
             self.progress_text.setText(f"目前沒有任務")
             self.progress_bar.setValue(0)
@@ -387,35 +333,62 @@ class MainWindow(QtWidgets.QWidget):
         if not isinstance(file_path, str) or file_path is None:
             logger.warning("File path is not string")
             return
+        
+        if file_path == "": # switch to runtime image mode
+            if self.have_runtime_preview:
+                logger.debug("already have runtime preview")
+                return
+            
+            if self.have_video_preview:
+                logger.debug("remove video preview")
+                self.video_preview.close()
+                self.video_control.close()
+                self.video_area.takeAt(1).widget().deleteLater()
+                self.video_area.takeAt(1).widget().deleteLater()
+                self.have_video_preview = False
+            self.runtime_preview = QtWidgets.QLabel()
+            self.runtime_preview.setFixedSize(640, 360)
+            self.video_area.addWidget(self.runtime_preview)
+            self.have_runtime_preview = True
+            logger.debug("Created runtime preview")
+            return
+        
         if not os.path.exists(file_path):
             logger.warning("File not found")
             self.open_error_dialog("File not found")
             return
         
         if self.have_video_preview:
-            self.video_preview.reset()
-            self.video_preview.load(file_path)
+            logger.debug("Reset video preview")
+            self.video_preview.close()
+            self.video_control.close()
+            self.video_area.takeAt(1).widget().deleteLater()
+            self.video_area.takeAt(1).widget().deleteLater()
+            
+            self.video_preview = VideoPlayer(self, file_path)
+            self.video_area.addWidget(self.video_preview)
+            
+            self.video_control = VideoControlPanel(self, self.video_preview)
+            self.video_area.addWidget(self.video_control)
         else:
             self.video_area.takeAt(1).widget().deleteLater()
             self.video_preview = VideoPlayer(self, file_path)
             self.video_area.addWidget(self.video_preview)
             self.have_video_preview = True
             
-            #control_layout = QtWidgets.QHBoxLayout()
-            #control_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            #self.video_rewind_button = new_button("後退")
-            #self.video_rewind_button.clicked.connect(lambda: self.video_preview.rewind(1000))
-            #self.video_pause_button = new_button("播放")
-            #self.video_pause_button.clicked.connect(lambda: (self.video_preview.pause(), self.video_pause_button.setText("播放") if self.video_preview.is_paused else self.video_pause_button.setText("暫停")))
-            #self.video_forward_button = new_button("前進")
-            #self.video_forward_button.clicked.connect(lambda: self.video_preview.forward(1000))
-            #control_layout.addWidget(self.video_rewind_button)
-            #control_layout.addWidget(self.video_pause_button)
-            #control_layout.addWidget(self.video_forward_button)
-            #self.video_area.addLayout(control_layout)
-            video_control = VideoControlPanel(self, self.video_preview)
-            self.video_area.addWidget(video_control)
+            self.video_control = VideoControlPanel(self, self.video_preview)
+            self.video_area.addWidget(self.video_control)
         self.video_preview.play()
+        
+    def update_runtime_img(self, pixmap):
+        if pixmap is None:
+            logger.warning("Receive None pixmap")
+            return
+        if not self.have_runtime_preview:
+            logger.warning("No runtime preview")
+            self.switch_video_preview("") # switch to runtime image mode
+            
+        self.runtime_preview.setPixmap(pixmap)
         
     def open_select_video_dialog(self):
         video_file_dialog = QtWidgets.QFileDialog(self)

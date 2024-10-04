@@ -12,7 +12,6 @@ class Record:
         self.parameters = {}
         self.data = {}
         self.script = {}
-        self.is_ready = False
         
         if file_path is not None:
             if os.path.exists(file_path):
@@ -37,7 +36,6 @@ class Record:
         self.parameters = {}
         self.data = {}
         self.script = {}
-        self.is_ready = False
     
     def load(self, file_path):
         if not self._check_format(file_path):
@@ -48,7 +46,6 @@ class Record:
             self.parameters = json_data["parameters"]
             self.data = json_data["data"]
             self.script = json_data["script"]
-        self.is_ready = True
         self.path = file_path
         
     def set_parameter(self, key, value):
@@ -75,9 +72,6 @@ class Record:
         self.script = script_result
         
     def export(self, file_path = None):
-        if not self.is_ready:
-            logger.error("Record is not ready")
-            return
         if file_path is not None:
             try:
                 if len(self.parameters) > 0 and len(self.data) > 1 and len(self.script) > 1:

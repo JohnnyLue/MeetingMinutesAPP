@@ -96,7 +96,6 @@ class FaceDatabaseManager:
         return images
     
     def get_name_embeddings_dict(self):
-        logger.debug('Get name embeddings dict')
         return self.name_embeddings_dict
     
     def generate_database_embeddings(self, names_to_process = None):
