@@ -95,6 +95,7 @@ class MainWindow(QtWidgets.QWidget):
         signals.updateParam.connect(self.received_param_value)
         signals.updateProgress.connect(self.update_progress_bar)
         signals.updateRuntimeImg.connect(self.update_runtime_img)
+        signals.returneDatabaseMenu.connect(self.recieve_database_menu)
         
         # set up window title and size
         self.setWindowTitle('操作頁面')
@@ -107,7 +108,8 @@ class MainWindow(QtWidgets.QWidget):
         self.have_video_preview = False
         self.have_runtime_preview = False
         self.member_name_imgs = {}
-                
+        self.database_menu = None
+        
         # start receiving loop
         threading.Thread(target=self.receiving_loop).start()
 
@@ -187,7 +189,7 @@ class MainWindow(QtWidgets.QWidget):
         db_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         db_layout.setSpacing(10)
         self.select_database_button = new_button("選擇資料庫")
-        self.select_database_button.clicked.connect(self.select_database_dialog)
+        self.select_database_button.clicked.connect(self.request_database_menu)
         
         self.db_grid_layout = QtWidgets.QGridLayout()
         self.db_scroll_widget = QtWidgets.QWidget()
@@ -287,19 +289,21 @@ class MainWindow(QtWidgets.QWidget):
         self.member_detail_window.set_imgs(self.member_name_imgs[name])
         self.member_detail_window.exec_()
         
-    def select_database_dialog(self):
-        database_file_dialog = QtWidgets.QFileDialog(self)
-        database_file_dialog.setNameFilter("Database Folder (*)")
-        database_file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.Directory)
-        if database_file_dialog.exec_():
-            file_path = database_file_dialog.selectedFiles()[0]
-            if file_path:
-                for _ in range(len(self.member_name_imgs)):
-                    self.db_grid_layout.takeAt(0).widget().deleteLater()
-                self.member_name_imgs = {}
-                self.si.send_signal("selectedDatabase")
-                self.si.send_data(file_path)
-                self.si.send_signal("requestAllMemberImg")
+    def request_database_menu(self):
+        logger.debug("open database menu")
+        self.database_menu = DatabaseMenu()
+        self.database_menu.exec_()
+        
+        self.si.send_signal("requestDatabaseMenu")
+    
+    def recieve_database_menu(self, database_name, member_names, pics):
+        if self.database_menu is None:
+            logger.warning("Database menu page is not opened")
+            return
+        self.database_menu.add_database_item(database_name)
+        for name, pic in zip(member_names, pics):
+            self.database_menu.addPreview_img(database_name, name, pic)
+        self.database_menu.update()
     
     def alter_param(self, name, value):
         self.si.send_signal("alterParam")

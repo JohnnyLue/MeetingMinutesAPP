@@ -59,6 +59,7 @@ class Backend():
         self.si.connect_signal("requestProgress", self.update_progress, False)
         self.si.connect_signal("recordOverwriteConfirmed", self.clear_record_and_run, False)
         self.si.connect_signal("requestAllMemberImg", self.get_all_member_img, False)
+        self.si.connect_signal("requestDatabaseMenu", self.get_database_menu, False)
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -281,6 +282,28 @@ class Backend():
         self.have_face_database = True
         logger.info(f"Set database path:\n\"{database_path}\"")
     
+    def get_database_menu(self):
+        databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE'], '*'))
+        logger.debug(databasees_list)
+        
+        for database in databasees_list:
+            self.si.send_signal("returnedDatabaseMenuItem")
+            self.si.send_data(os.path.basename(database))
+            logger.debug(os.path.basename(database))
+            names = glob.glob(os.path.join(database, '*'))
+            logger.debug(names)
+            preview_imgs = []
+            for name in names: # pick one picture of each person
+                img_paths = glob.glob(os.path.join(name, '*.png'))
+                logger.debug(img_paths)
+                if len(img_paths) == 0:
+                    logger.warning(f"No image found in {name}, skiped")
+                    continue
+                img = cv2.imread(img_paths[0])
+                img = cv2.resize(img, (640, 360))
+                preview_imgs.append(img)
+            self.si.send_data(preview_imgs)
+            
     def get_all_member_img(self):
         if not self.have_face_database:
             self.raise_error("Please select a database.")

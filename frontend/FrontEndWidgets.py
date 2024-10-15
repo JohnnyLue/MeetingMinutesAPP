@@ -603,3 +603,50 @@ class MemberDetailWindow(QtWidgets.QDialog):
     def delete_member(self):
         pass
     
+class DatabaseMenu(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("資料庫")
+        self.setMinimumSize(300, 200)
+        self.ui()
+        
+        # store database name and preview images
+        self.database_preview_pics = {} # {database_name: {member_name: preview_img, name2: img2, ...}, database_2: {...}, ...}
+    
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        self.member_scroll_area = QtWidgets.QScrollArea()
+        self.member_scroll_widget = QtWidgets.QWidget()
+        self.member_grid_layout = QtWidgets.QGridLayout()
+        self.member_grid_layout.setContentsMargins(5, 5, 5, 5)
+        self.member_scroll_widget.setLayout(self.member_grid_layout)
+        self.member_scroll_area.setWidget(self.member_scroll_widget)
+        layout.addWidget(self.member_scroll_area)
+        
+        self.setLayout(layout)
+        
+    def add_database_item(self, name):
+        if not isinstance(name, str):
+            return
+        if name in self.database_preview_pics.keys():
+            return
+        
+        self.database_preview_pics[name] = [] # initialization
+        
+    def addPreview_img(self, database_name, member_name, preview_img):
+        if not isinstance(database_name, str):
+            return
+        if not isinstance(member_name, str):
+            return
+        if not isinstance(preview_img, QtGui.QPixmap):
+            return
+        if database_name not in self.database_preview_pics.keys():
+            logger.error(f'"{database_name}" not in database_preview_pics')
+            return
+        if member_name in self.database_preview_pics[database_name].keys():
+            logger.waring(f'"{member_name}" in "{database_name}" already have preview picture')
+            return
+        
+        self.database_preview_pics[database_name][member_name] = preview_img
