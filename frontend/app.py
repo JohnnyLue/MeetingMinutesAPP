@@ -63,8 +63,11 @@ signals = SignalTable()
 class MainWindow(QtWidgets.QWidget):
     def __init__(self, host = 'localhost', port = 8080, buffer_size = 1024):
         super().__init__()
+        # create socket interface instance
         self.si = SocketInterface(host, port, buffer_size)
         self.si.imClient()
+        
+        # set up signal pairs and data info
         self.signals_pairs = {
             "errorOccor": signals.errorOccor,
             "recordOverwrite": signals.recordOverwrite,
@@ -84,6 +87,7 @@ class MainWindow(QtWidgets.QWidget):
             "updateRuntimeImg": 1
         }
         
+        # bind signals
         signals.errorOccor.connect(self.open_error_dialog)
         signals.recordOverwrite.connect(self.open_check_overwrite_dialog)
         signals.selectedVideo.connect(self.switch_video_preview)
@@ -92,19 +96,23 @@ class MainWindow(QtWidgets.QWidget):
         signals.updateProgress.connect(self.update_progress_bar)
         signals.updateRuntimeImg.connect(self.update_runtime_img)
         
-        self.setObjectName("MainWindow")
+        # set up window title and size
         self.setWindowTitle('操作頁面')
-        
         self.resize(1100, 600)
+        
+        # create ui
         self.ui()
         
+        # initialize some status var and image storage
         self.have_video_preview = False
         self.have_runtime_preview = False
         self.member_name_imgs = {}
                 
+        # start receiving loop
         threading.Thread(target=self.receiving_loop).start()
+
+        # send signals for initialization
         self.si.send_signal("requestParams")
-        logger.debug("Requesting all parameters")
         self.si.send_signal("requestProgress")
         
     def receiving_loop(self):
@@ -408,6 +416,7 @@ class MainWindow(QtWidgets.QWidget):
             self.si.send_signal("recordOverwriteConfirmed")
        
     def open_error_dialog(self, message):
+        logger.info(f"Error occor: {message}")
         if not isinstance(message, str) or message is None:
             logger.warning("Invalid error message")
             return
@@ -415,9 +424,11 @@ class MainWindow(QtWidgets.QWidget):
         error_dialog.exec_()
         
     def terminate_process(self):
+        logger.info("Terminate process")
         self.si.send_signal("terminateProcess")
         
     def closeEvent(self, event):
+        logger.info("Close window and terminate process")
         self.si.send_signal("terminateProcess")
         self.si.close()
         if self.have_video_preview:
