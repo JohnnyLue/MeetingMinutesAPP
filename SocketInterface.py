@@ -164,7 +164,7 @@ class SocketInterface():
             image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
             return type, image
         else:
-            logger.error("Unknown type of data")
+            logger.error("Unknown type: " + type)
             return None, None
         
     def connect_signal(self, signal, func, require_data = False):

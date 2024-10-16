@@ -551,23 +551,25 @@ class MemberDetailWindow(QtWidgets.QDialog):
             return
         if len(self.member_imgs) == 0:
             return
-        cols = (self.pic_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
+        cols = (self.pic_scroll_area.size().width()-25)//100 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
         for _ in range(self.pic_grid_layout.count()):
             self.pic_grid_layout.takeAt(0).widget().deleteLater()
         i_row = 0
         i_col = 0
         for img in self.member_imgs:
             member_img = QtWidgets.QLabel()
-            member_img.setPixmap(img.scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
-            member_img.setStyleSheet("border :4px solid #607cff;")
             member_img.setFixedSize(100, 100)
+            member_img.setPixmap(img.scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+            member_img.setStyleSheet("border :2px solid #607cff;")
             self.pic_grid_layout.addWidget(member_img, i_row, i_col)
             i_col += 1
             if i_col == cols:
                 i_col = 0
                 i_row += 1
-        for i in range(len(self.member_imgs)%cols):
-            self.pic_grid_layout.addWidget(QtWidgets.QLabel(), i_row, i_col)
+        for i in range((cols-len(self.member_imgs)%cols)%cols):
+            filler = QtWidgets.QLabel()
+            filler.setFixedSize(100, 100)
+            self.pic_grid_layout.addWidget(filler, i_row, i_col)
             i_col += 1
         hei = 110*math.ceil(len(self.member_imgs)/cols)
         if hei < self.pic_scroll_area.size().height():
@@ -607,21 +609,20 @@ class DatabaseMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("資料庫")
-        self.setMinimumSize(300, 200)
+        self.setFixedSize(650, 600)
         self.ui()
         
-        # store database name and preview images
-        self.database_preview_pics = {} # {database_name: {member_name: preview_img, name2: img2, ...}, database_2: {...}, ...}
+        self.database_preview_items = {}
     
     def ui(self):
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
         
         self.member_scroll_area = QtWidgets.QScrollArea()
         self.member_scroll_widget = QtWidgets.QWidget()
-        self.member_grid_layout = QtWidgets.QGridLayout()
-        self.member_grid_layout.setContentsMargins(5, 5, 5, 5)
-        self.member_scroll_widget.setLayout(self.member_grid_layout)
+        self.member_vbox_layout = QtWidgets.QVBoxLayout()
+        self.member_vbox_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        self.member_scroll_widget.setLayout(self.member_vbox_layout)
         self.member_scroll_area.setWidget(self.member_scroll_widget)
         layout.addWidget(self.member_scroll_area)
         
@@ -630,10 +631,9 @@ class DatabaseMenu(QtWidgets.QDialog):
     def add_database_item(self, name):
         if not isinstance(name, str):
             return
-        if name in self.database_preview_pics.keys():
-            return
         
-        self.database_preview_pics[name] = [] # initialization
+        self.database_preview_items[name] = DatabaseMenuItem(name, self) # initialization
+        self.member_vbox_layout.addWidget(self.database_preview_items[name])
         
     def addPreview_img(self, database_name, member_name, preview_img):
         if not isinstance(database_name, str):
@@ -642,11 +642,76 @@ class DatabaseMenu(QtWidgets.QDialog):
             return
         if not isinstance(preview_img, QtGui.QPixmap):
             return
-        if database_name not in self.database_preview_pics.keys():
-            logger.error(f'"{database_name}" not in database_preview_pics')
-            return
-        if member_name in self.database_preview_pics[database_name].keys():
+        if database_name not in self.database_preview_items.keys():
+            self.add_database_item(database_name)
+        if member_name in self.database_preview_items[database_name].get_names():
             logger.waring(f'"{member_name}" in "{database_name}" already have preview picture')
             return
         
-        self.database_preview_pics[database_name][member_name] = preview_img
+        logger.debug(f'add preview image of "{member_name}" in "{database_name}"')
+        self.database_preview_items[database_name].add_member(member_name, preview_img)
+        
+    def update(self):
+        for database_name in self.database_preview_items.keys():
+            self.database_preview_items[database_name].update()
+        logger.debug(f'{self.member_vbox_layout.count()}, {self.member_vbox_layout.sizeHint()}, {self.member_scroll_widget.sizeHint()}')
+        self.member_scroll_widget.resize(QtCore.QSize(600, len(self.database_preview_items)*220))
+        logger.debug(f'new size: {(600, len(self.database_preview_items)*180)}')
+        
+    def select_database(self, database_name):
+        self.result = database_name
+        self.accept()
+        
+    def closeEvent(self, event):
+        self.result = None
+        self.accept()
+        
+class DatabaseMenuItem(QtWidgets.QWidget):
+    def __init__(self, database_name, menu, parent=None):
+        super().__init__(parent)
+        self.database_name = database_name
+        self.name_list = []
+        self.preview_imgs = []
+        self.preview_img_num = 0
+        self.menu = menu
+        self.ui()
+    
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        
+        self.name_button = new_button(self.database_name)
+        self.name_button.clicked.connect(self.select_database)
+        layout.addWidget(self.name_button)
+        
+        pic_layout = QtWidgets.QHBoxLayout()
+        for i in range(5): # at most 5 preview images
+            img_label = QtWidgets.QLabel(self)
+            img_label.setFixedSize(100, 100)
+            self.preview_imgs.append(img_label)
+            pic_layout.addWidget(self.preview_imgs[i])
+            if i != 4:
+                pic_layout.addStretch(1)
+        layout.addLayout(pic_layout)
+        
+        self.setLayout(layout)
+        
+    def select_database(self):
+        self.menu.select_database(self.database_name)
+        
+    def get_names(self):
+        return self.name_list
+    
+    def update(self):
+        self.setToolTip(f'{self.database_name}\n{", ".join(self.name_list)}')
+        
+    def add_member(self, member_name, pixmap):
+        if not isinstance(member_name, str):
+            return
+        if not isinstance(pixmap, QtGui.QPixmap):
+            return
+        self.name_list.append(member_name)
+        logger.debug(f'add member "{member_name}" in "{self.database_name}, {len(self.name_list)}, {self.preview_img_num}"')
+        if self.preview_img_num < 5:
+            self.preview_imgs[self.preview_img_num].setPixmap(pixmap.scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+            self.preview_img_num += 1

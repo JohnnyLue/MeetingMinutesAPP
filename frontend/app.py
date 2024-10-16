@@ -37,6 +37,7 @@ class SignalTable(QtCore.QObject):
 
     selectedVideo = QtCore.pyqtSignal(str) # 選擇影片: 檔案位置
     selectedDatabase = QtCore.pyqtSignal(str) # 選擇資料庫: 
+    returnedDatabaseMenu = QtCore.pyqtSignal(str, str, QtGui.QPixmap) # 回傳資料庫: 資料庫名, 人員名, 照片
 
     requestParams = QtCore.pyqtSignal() # 要求參數(全部)
     updateParam = QtCore.pyqtSignal(str, list) # 更新顯示參數: 參數名, 值 (可能是list)
@@ -75,7 +76,9 @@ class MainWindow(QtWidgets.QWidget):
             "returnedMemberImg": signals.returnedMemberImg,
             "updateParam": signals.updateParam,
             "updateProgress": signals.updateProgress,
-            "updateRuntimeImg": signals.updateRuntimeImg
+            "updateRuntimeImg": signals.updateRuntimeImg,
+            "returnedDatabaseMenu": signals.returnedDatabaseMenu,
+            
         }
         self.require_data_count = {
             "errorOccor": 1,
@@ -84,7 +87,8 @@ class MainWindow(QtWidgets.QWidget):
             "returnedMemberImg": 2,
             "updateParam": 2,
             "updateProgress": 3,
-            "updateRuntimeImg": 1
+            "updateRuntimeImg": 1,
+            "returnedDatabaseMenu": 3
         }
         
         # bind signals
@@ -95,7 +99,7 @@ class MainWindow(QtWidgets.QWidget):
         signals.updateParam.connect(self.received_param_value)
         signals.updateProgress.connect(self.update_progress_bar)
         signals.updateRuntimeImg.connect(self.update_runtime_img)
-        signals.returneDatabaseMenu.connect(self.recieve_database_menu)
+        signals.returnedDatabaseMenu.connect(self.recieve_database_menu)
         
         # set up window title and size
         self.setWindowTitle('操作頁面')
@@ -143,7 +147,6 @@ class MainWindow(QtWidgets.QWidget):
                         self.si.close()
                         break
                     elif type == "IMG": # receive image
-                        logger.debug(f"Receive image")
                         pixmap = cv2_to_pixmap(d)
                         data.append(pixmap)
                     else:
@@ -292,18 +295,26 @@ class MainWindow(QtWidgets.QWidget):
     def request_database_menu(self):
         logger.debug("open database menu")
         self.database_menu = DatabaseMenu()
-        self.database_menu.exec_()
-        
         self.si.send_signal("requestDatabaseMenu")
+        self.database_menu.exec_()
+        if self.database_menu.result is None:
+            logger.warning("No database selected")
+            return
+        else:
+            logger.debug(f"Selected database: {self.database_menu.result}")
+            self.member_name_imgs = {}
+            self.si.send_signal("selectedDatabase")
+            self.si.send_data(self.database_menu.result)
+            self.si.send_signal("requestAllMemberImg")
     
-    def recieve_database_menu(self, database_name, member_names, pics):
+    def recieve_database_menu(self, database_name, member_name, pic):
         if self.database_menu is None:
             logger.warning("Database menu page is not opened")
             return
-        self.database_menu.add_database_item(database_name)
-        for name, pic in zip(member_names, pics):
-            self.database_menu.addPreview_img(database_name, name, pic)
-        self.database_menu.update()
+        if database_name == 'EOF':
+            self.database_menu.update()
+            return
+        self.database_menu.addPreview_img(database_name, member_name, pic)
     
     def alter_param(self, name, value):
         self.si.send_signal("alterParam")

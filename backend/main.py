@@ -277,22 +277,21 @@ class Backend():
             self.total_progress = 0
             self.update_progress()
      
-    def set_database_path(self, database_path):
-        self.fdm = FaceDatabaseManager(database_path)
+    def set_database_path(self, database_name):
+        self.fdm = FaceDatabaseManager(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
         self.have_face_database = True
-        logger.info(f"Set database path:\n\"{database_path}\"")
+        logger.info(f"Set database path:\n\"{database_name}\"")
     
     def get_database_menu(self):
-        databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE'], '*'))
+        databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], '*'))
         logger.debug(databasees_list)
         
         for database in databasees_list:
-            self.si.send_signal("returnedDatabaseMenuItem")
-            self.si.send_data(os.path.basename(database))
             logger.debug(os.path.basename(database))
             names = glob.glob(os.path.join(database, '*'))
             logger.debug(names)
             preview_imgs = []
+            name_list = []
             for name in names: # pick one picture of each person
                 img_paths = glob.glob(os.path.join(name, '*.png'))
                 logger.debug(img_paths)
@@ -300,10 +299,20 @@ class Backend():
                     logger.warning(f"No image found in {name}, skiped")
                     continue
                 img = cv2.imread(img_paths[0])
-                img = cv2.resize(img, (640, 360))
                 preview_imgs.append(img)
-            self.si.send_data(preview_imgs)
-            
+                name_list.append(os.path.basename(name))
+                
+            for i in range(len(name_list)): # send data
+                self.si.send_signal("returnedDatabaseMenu")
+                self.si.send_data(os.path.basename(database))
+                self.si.send_data(name_list[i])
+                self.si.send_image(preview_imgs[i])
+                
+        self.si.send_signal("returnedDatabaseMenu")
+        self.si.send_data('EOF')
+        self.si.send_data('')
+        self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
+        
     def get_all_member_img(self):
         if not self.have_face_database:
             self.raise_error("Please select a database.")
