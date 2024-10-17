@@ -182,6 +182,10 @@ class MainWindow(QtWidgets.QWidget):
         progress_bar_layout.addWidget(self.progress_bar)
         video_and_progress_layout.addLayout(progress_bar_layout)
         layout.addLayout(video_and_progress_layout)
+        
+        # Subtitle Display Section
+        subtitle_layout = SubtitleArea(self)
+        layout.addWidget(subtitle_layout)
 
         # database control and parameter section
         db_and_parm_layout = QtWidgets.QVBoxLayout()

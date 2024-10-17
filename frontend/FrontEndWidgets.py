@@ -805,3 +805,36 @@ class DatabaseMenuItem(QtWidgets.QWidget):
         if self.preview_img_num < 5:
             self.preview_imgs[self.preview_img_num].setPixmap(pixmap.scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
             self.preview_img_num += 1
+            
+class SubtitleArea(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(300, 360)
+        self.time_subtitle = {}
+        self.ui()
+        
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        
+        subtitle_label = QtWidgets.QLabel("字幕區域", self)
+        subtitle_label.setFont(MyFont())
+        layout.addWidget(subtitle_label)
+        
+        self.subtitle_scroll_area = QtWidgets.QScrollArea()
+        self.subtitle_scroll_widget = QtWidgets.QWidget()
+        self.subtitle_vbox_layout = QtWidgets.QVBoxLayout()
+        self.subtitle_scroll_widget.setLayout(self.subtitle_vbox_layout)
+        self.subtitle_scroll_area.setWidget(self.subtitle_scroll_widget)
+        layout.addWidget(self.subtitle_scroll_area)
+        
+        self.setLayout(layout)
+        
+    def set_subtitle_data(self, subtitle_data):
+        for d in subtitle_data.items():
+            start_time = d['start']
+            #end_time = d['end']
+            subtitle = d['text']
+            
+            self.time_subtitle[start_time] = subtitle
+            logger.debug(f'add subtitle: {start_time} {subtitle}')
