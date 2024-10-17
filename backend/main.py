@@ -4,8 +4,6 @@ import cv2
 import glob
 import logging
 import os
-import socket
-import time
 import threading
 
 from FaceAnalyzer import FaceAnalyzer
@@ -14,6 +12,7 @@ from FaceRecognizer import FaceRecognizer
 from Record import Record
 from ScriptManager import ScriptManager
 from VideoManager import VideoManager
+
 from Utils import *
 from SocketInterface import SocketInterface
 

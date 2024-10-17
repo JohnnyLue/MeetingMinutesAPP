@@ -414,10 +414,11 @@ class MainWindow(QtWidgets.QWidget):
         self.runtime_preview.setPixmap(pixmap)
         
     def open_select_video_dialog(self):
-        video_file_dialog = QtWidgets.QFileDialog(self)
-        video_file_dialog.setNameFilter("Video File (*.mp4)")
-        if video_file_dialog.exec_():
-            file_path = video_file_dialog.selectedFiles()[0]
+        video_file_dialog = VideoMenu(os.path.join(os.getcwd(), 'meetingVideo'), self)
+        video_file_dialog.exec_()
+        if video_file_dialog.result is not None:
+            logger.debug(f"Selected video: {video_file_dialog.result}")
+            file_path = video_file_dialog.result
             if file_path:
                 self.si.send_signal("selectedVideo")
                 self.si.send_data(file_path)

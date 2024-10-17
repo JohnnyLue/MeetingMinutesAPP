@@ -1,11 +1,13 @@
 
 import cv2
+from ffpyplayer.player import MediaPlayer
+import glob
+import logging
 import math
+import os
 from PyQt5 import QtWidgets, QtCore, QtGui
 import threading
 import time
-from ffpyplayer.player import MediaPlayer
-import logging
 
 logger = logging.getLogger()
 
@@ -604,6 +606,94 @@ class MemberDetailWindow(QtWidgets.QDialog):
     
     def delete_member(self):
         pass
+    
+class VideoMenu(QtWidgets.QDialog):
+    def __init__(self, root_dir, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("選擇影片")
+        self.vid_height = 150
+        self.vid_width = 150*16//9
+        self.setMinimumSize(self.vid_width*2+100, self.vid_height*2+100)
+        self.root_dir = root_dir
+        self.ui()        
+        
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        
+        self.curent_dir_label = QtWidgets.QLabel(f'目前根目錄: {self.root_dir}', self)
+        self.curent_dir_label.setFont(MyFont())
+        layout.addWidget(self.curent_dir_label)
+        
+        change_dir_btn = new_button("更改根目錄")
+        change_dir_btn.clicked.connect(self.open_change_dir_dialog)
+        layout.addWidget(change_dir_btn)
+        
+        self.video_scroll_area = QtWidgets.QScrollArea()
+        self.video_scroll_widget = QtWidgets.QWidget()
+        self.video_grid_layout = QtWidgets.QGridLayout()
+        self.video_scroll_widget.setLayout(self.video_grid_layout)
+        self.video_scroll_area.setWidget(self.video_scroll_widget)
+        layout.addWidget(self.video_scroll_area)
+        
+        self.setLayout(layout)
+        
+    def resizeEvent(self, event):
+        self.update()
+        
+    def update(self):
+        # find videos in root_dir and update the grid layout and video widget size
+        for _ in range(self.video_grid_layout.count()):
+            self.video_grid_layout.takeAt(0).widget().deleteLater()
+            
+        self.curent_dir_label.setText(f'目前根目錄: {self.root_dir}')
+        videos = glob.glob(os.path.join(self.root_dir, '*.mp4'))
+        i_row = 0
+        i_col = 0
+        rols = self.video_scroll_area.size().width()//(self.vid_width+10)
+        logger.debug(f'rols: {rols}')
+        for video in videos:
+            video_cap = cv2.VideoCapture(video)
+            if not video_cap.isOpened():
+                logger.warning(f'"{video}" is not a valid video file, skiped')
+                continue
+            success, frame = video_cap.read()
+            if not success:
+                logger.warning(f'"{video}" is not a valid video file, skiped')
+                continue
+            video_cap.release()
+            pframe = cv2_to_pixmap(frame)
+            video_thumb = pframe.scaled(self.vid_width, self.vid_height, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding)
+            video_label = QtWidgets.QLabel()
+            video_label.setStyleSheet("border :2px solid #607cff;")
+            video_label.setPixmap(video_thumb)
+            video_label.setFixedSize(self.vid_width, self.vid_height)
+            video_label.mousePressEvent = lambda event, video=video: self.select_video(video)
+            self.video_grid_layout.addWidget(video_label, i_row, i_col)
+            i_col += 1
+            if i_col == rols:
+                i_col = 0
+                i_row += 1
+        self.video_scroll_widget.resize(QtCore.QSize(self.video_scroll_area.size().width()-30, (i_row+1)*(self.vid_height+10)))
+        
+    def open_change_dir_dialog(self):
+        dialog = QtWidgets.QFileDialog(self, "選擇根目錄")
+        dialog.setFileMode(QtWidgets.QFileDialog.FileMode.Directory)
+        if dialog.exec_():
+            logger.debug(f'change root dir to {dialog.selectedFiles()[0]}')
+            self.root_dir = dialog.selectedFiles()[0]
+            self.update()
+        else:
+            return
+        
+    def select_video(self, video_path):
+        logger.debug(f'select video: {video_path}')
+        self.result = video_path
+        self.accept()
+        
+    def closeEvent(self, event):
+        self.result = None
+        self.accept()
     
 class DatabaseMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):
