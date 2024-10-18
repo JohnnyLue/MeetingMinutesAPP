@@ -42,7 +42,7 @@ class ScriptManager:
             logger.warning("Result not ready")
             return None
         
-        logger.debug("Get result")
+        logger.debug("Get transcribe result")
         return self.result
     
     def get_script_by_time(self, _time:float):

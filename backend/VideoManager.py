@@ -127,6 +127,7 @@ class VideoManager:
         new_time_ms = min(cur_time_ms + seconds * 1000, self.total_time * 1000)
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time_ms)
         self.frame = self.cap.read()[1]
+        self.cur_frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
         logger.debug(f'forward {new_time_ms} ms')
     
     def rewind(self, seconds):
@@ -141,6 +142,7 @@ class VideoManager:
         new_time_ms = max(cur_time_ms - seconds * 1000, 0)
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time_ms)
         self.frame = self.cap.read()[1]
+        self.cur_frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
         logger.debug(f'rewind {new_time_ms} ms')
        
     def is_end(self):
@@ -148,7 +150,7 @@ class VideoManager:
             logger.warning('Initialization is not done.')
             return False
         
-        return self.cap.get(cv2.CAP_PROP_POS_FRAMES) >= self.total_frames
+        return abs(self.cur_frame_idx - self.total_frames) < 10
      
     def get_time(self):
         if not self.is_ready:

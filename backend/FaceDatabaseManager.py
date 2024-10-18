@@ -18,7 +18,7 @@ class FaceDatabaseManager:
         else:
             self.have_face_recognizer = False
         self.new_member_prefix = new_member_prefix
-        logger.info(f'new member prefix set to "{new_member_prefix}"')
+        logger.debug(f'new member prefix set to "{new_member_prefix}"')
         
         if not os.path.exists(self.database_root):
             os.mkdir(self.database_root)
@@ -77,7 +77,7 @@ class FaceDatabaseManager:
    
     def get_name_list(self):
         if len(self.names) == 0:
-            return None
+            return []
         logger.debug(f'Get name list: {self.names}')
         return self.names
     

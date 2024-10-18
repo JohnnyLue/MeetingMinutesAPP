@@ -57,6 +57,8 @@ class SignalTable(QtCore.QObject):
 
     errorOccor = QtCore.pyqtSignal(str) # 錯誤訊息
     ProcessFinished = QtCore.pyqtSignal(str) # 任務完成: 紀錄檔位置
+    
+    returnedRecordMenu = QtCore.pyqtSignal(str, str, str) # 接收紀錄: 紀錄名, 影片位置, 資料庫名
 
 signals = SignalTable()
 ####################################################################################
@@ -78,6 +80,7 @@ class MainWindow(QtWidgets.QWidget):
             "updateProgress": signals.updateProgress,
             "updateRuntimeImg": signals.updateRuntimeImg,
             "returnedDatabaseMenu": signals.returnedDatabaseMenu,
+            "returnedRecordMenu": signals.returnedRecordMenu
             
         }
         self.require_data_count = {
@@ -88,7 +91,8 @@ class MainWindow(QtWidgets.QWidget):
             "updateParam": 2,
             "updateProgress": 3,
             "updateRuntimeImg": 1,
-            "returnedDatabaseMenu": 3
+            "returnedDatabaseMenu": 3,
+            "returnedRecordMenu": 3
         }
         
         # bind signals
@@ -100,6 +104,7 @@ class MainWindow(QtWidgets.QWidget):
         signals.updateProgress.connect(self.update_progress_bar)
         signals.updateRuntimeImg.connect(self.update_runtime_img)
         signals.returnedDatabaseMenu.connect(self.recieve_database_menu)
+        signals.returnedRecordMenu.connect(self.received_record_menu)
         
         # set up window title and size
         self.setWindowTitle('操作頁面')
@@ -113,6 +118,7 @@ class MainWindow(QtWidgets.QWidget):
         self.have_runtime_preview = False
         self.member_name_imgs = {}
         self.database_menu = None
+        self.record_menu = None
         
         # start receiving loop
         threading.Thread(target=self.receiving_loop).start()
@@ -229,6 +235,7 @@ class MainWindow(QtWidgets.QWidget):
         
         layout.addLayout(db_and_parm_layout)
 
+
         # Test Execution Section
         execution_layout = QtWidgets.QVBoxLayout()
         execution_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -238,6 +245,11 @@ class MainWindow(QtWidgets.QWidget):
         self.run_button.clicked.connect(lambda: self.si.send_signal("startProcess"))
         self.terminate_button = new_button("終止處理")
         self.terminate_button.clicked.connect(self.terminate_process)
+        # Select Record
+        select_record_btn = new_button("選擇紀錄")
+        select_record_btn.clicked.connect(self.open_select_record_dialog)
+        execution_layout.addWidget(select_record_btn)
+        execution_layout.addSpacing(20)
         execution_layout.addWidget(self.test_button)
         execution_layout.addSpacing(20)
         execution_layout.addWidget(self.run_button)
@@ -303,6 +315,7 @@ class MainWindow(QtWidgets.QWidget):
         self.database_menu.exec_()
         if self.database_menu.result is None:
             logger.warning("No database selected")
+            self.database_menu = None
             return
         else:
             logger.debug(f"Selected database: {self.database_menu.result}")
@@ -310,12 +323,14 @@ class MainWindow(QtWidgets.QWidget):
             self.si.send_signal("selectedDatabase")
             self.si.send_data(self.database_menu.result)
             self.si.send_signal("requestAllMemberImg")
+            self.database_menu = None
     
     def recieve_database_menu(self, database_name, member_name, pic):
         if self.database_menu is None:
             logger.warning("Database menu page is not opened")
             return
         if database_name == 'EOF':
+            self.database_menu.add_create_new_button()
             self.database_menu.update()
             return
         self.database_menu.addPreview_img(database_name, member_name, pic)
@@ -434,6 +449,23 @@ class MainWindow(QtWidgets.QWidget):
         check_dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
         if check_dialog.exec_() == QtWidgets.QMessageBox.StandardButton.Yes:
             self.si.send_signal("recordOverwriteConfirmed")
+       
+    def open_select_record_dialog(self):
+        self.record_menu = RecordMenu(self)
+        self.si.send_signal("requestRecordMenu")
+        self.record_menu.exec_()
+        if self.record_menu.result is not None:
+            logger.debug(f"Selected record: {self.record_menu.result}")
+            self.si.send_signal("selectedRecord")
+            self.si.send_data(self.record_menu.result)
+            self.record_menu = None
+       
+    def received_record_menu(self, record_name, video_path, database_name):
+        if self.record_menu is None:
+            logger.warning("Record menu page is not opened")
+            return
+        self.record_menu.addRecord(record_name, video_path, database_name)
+        logger.debug(f"Receive record: {record_name}, {video_path}, {database_name}")
        
     def open_error_dialog(self, message):
         logger.info(f"Error occor: {message}")

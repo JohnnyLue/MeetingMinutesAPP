@@ -725,6 +725,11 @@ class DatabaseMenu(QtWidgets.QDialog):
         self.database_preview_items[name] = DatabaseMenuItem(name, self) # initialization
         self.member_vbox_layout.addWidget(self.database_preview_items[name])
         
+    def add_create_new_button(self):
+        btn = new_button("新增")
+        btn.clicked.connect(self.create_new_database)
+        self.member_vbox_layout.addWidget(btn)    
+    
     def addPreview_img(self, database_name, member_name, preview_img):
         if not isinstance(database_name, str):
             return
@@ -747,6 +752,10 @@ class DatabaseMenu(QtWidgets.QDialog):
         logger.debug(f'{self.member_vbox_layout.count()}, {self.member_vbox_layout.sizeHint()}, {self.member_scroll_widget.sizeHint()}')
         self.member_scroll_widget.resize(QtCore.QSize(600, len(self.database_preview_items)*220))
         logger.debug(f'new size: {(600, len(self.database_preview_items)*180)}')
+
+    def create_new_database(self):
+        self.result = ""
+        self.accept()
         
     def select_database(self, database_name):
         self.result = database_name
@@ -838,3 +847,82 @@ class SubtitleArea(QtWidgets.QWidget):
             
             self.time_subtitle[start_time] = subtitle
             logger.debug(f'add subtitle: {start_time} {subtitle}')
+            
+class RecordMenu(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("選擇紀錄檔")
+        self.setMinimumSize(200, 300)
+        self.ui()
+        self.update()
+        
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        
+        self.record_scroll_area = QtWidgets.QScrollArea()
+        self.record_scroll_widget = QtWidgets.QWidget()
+        self.record_vbox_layout = QtWidgets.QVBoxLayout()
+        self.record_scroll_widget.setLayout(self.record_vbox_layout)
+        self.record_scroll_area.setWidget(self.record_scroll_widget)
+        layout.addWidget(self.record_scroll_area)
+        
+        self.setLayout(layout)
+        
+    def add_record_item(self, record_name, create_time, video_name, database_name):
+        if not isinstance(video_name, str) or not isinstance(database_name, str) or not isinstance(create_time, str):
+            return
+        if not isinstance(record_name, str):
+            return
+        
+        record_item = RecordMenuItem(record_name, create_time, video_name, database_name, self)
+        self.record_vbox_layout.addWidget(record_item)
+        self.update()
+        
+    def update(self):
+        self.record_scroll_widget.resize(QtCore.QSize(350, self.record_vbox_layout.count()*40))
+        
+    def select_record(self, record_name):
+        self.result = record_name
+        self.accept()
+        
+    def closeEvent(self, event):
+        self.result = None
+        self.accept()
+
+class RecordMenuItem(QtWidgets.QWidget):
+    def __init__(self, record_name, create_time, video_name, database_name, menu, parent=None):
+        super().__init__(parent)
+        self.record_name = record_name
+        self.create_time = create_time
+        self.video_name = video_name
+        self.database_name = database_name
+        self.menu = menu
+        self.ui()
+        
+    def ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        
+        self.record_button = new_button(self.record_name)
+        self.record_button.clicked.connect(self.select_record)
+        layout.addWidget(self.record_button)
+        
+        info_layout = QtWidgets.QHBoxLayout()
+        info_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        create_time_label = QtWidgets.QLabel(f'建立時間: {self.create_time}', self)
+        create_time_label.setFont(MyFont())
+        info_layout.addWidget(create_time_label)
+        video_name_label = QtWidgets.QLabel(f'影片: {self.video_name}', self)
+        video_name_label.setFont(MyFont())
+        info_layout.addWidget(video_name_label)
+        database_name_label = QtWidgets.QLabel(f'資料庫: {self.database_name}', self)
+        database_name_label.setFont(MyFont())
+        info_layout.addWidget(database_name_label)
+        layout.addLayout(info_layout)
+        
+        self.setLayout(layout)
+        
+    def select_record(self):
+        self.menu.select_record(self.record_name)
+
