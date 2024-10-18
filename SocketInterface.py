@@ -53,7 +53,7 @@ class SocketInterface():
             self.sock.close()
             logger.info("Close previous client")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        for _ in range(5):
+        for _ in range(10):
             try:
                 self.sock.connect((self.host, self.port))
                 break
