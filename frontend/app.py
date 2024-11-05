@@ -484,7 +484,7 @@ class MainWindow(QtWidgets.QWidget):
         self.si.send_signal("terminateProcess")
         self.si.close()
         if self.have_video_preview:
-            self.video_preview.reset()
+            self.video_preview.close()
         event.accept()
         
 if __name__ == '__main__':

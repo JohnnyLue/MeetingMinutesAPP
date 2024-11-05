@@ -1,6 +1,6 @@
 @echo off
 cd backend
-start cmd /c python main.py
+start cmd /k python main.py
 cd ..\frontend
-start cmd /c python app.py
+start cmd /k python app.py
 cd ..

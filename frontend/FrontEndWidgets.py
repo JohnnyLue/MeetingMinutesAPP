@@ -97,6 +97,7 @@ class VideoPlayer(QtWidgets.QLabel):
         self.is_paused = True
         self.quit_loop = False
         self.cap = None
+        self.audio = None
         self.play_thread = None
         self.lock_read = True
         self.total_time = 0
@@ -109,6 +110,17 @@ class VideoPlayer(QtWidgets.QLabel):
             return
         if event.button() == QtCore.Qt.LeftButton:
             self.pause()
+        
+    def keyPressEvent(self, event):
+        if self.quit_loop:
+            return
+        logger.debug(f'key: {event.key()}')
+        if event.key() == QtCore.Qt.Key.Key_Space:
+            self.pause()
+        elif event.key() == QtCore.Qt.Key.Key_Right:
+            self.forward(10)
+        elif event.key() == QtCore.Qt.Key.Key_Left:
+            self.rewind(10)
         
     def update(self, img):
         self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
@@ -125,7 +137,10 @@ fps:{int(self.cap.get(cv2.CAP_PROP_FPS))}
 frame count:{int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))}
 video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}''')
         self.total_time = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
-        self.lock_read = False
+        def wait_for_audio_load():
+            time.sleep(3)
+            self.lock_read = False
+        threading.Thread(target=wait_for_audio_load).start()
 
     def close(self):
         self.lock_read = True
@@ -140,17 +155,24 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
     def pause(self):
         if self.quit_loop:
             return
-        self.is_paused = not self.is_paused
+        if self.lock_read:
+            return
+        self.lock_read = True
         self.audio.toggle_pause()
+        self.is_paused = not self.is_paused
         logger.debug(f'pause: {self.is_paused}')
+        self.lock_read = False
 
     def forward(self, seconds):
         if self.quit_loop:
             return
+        if self.lock_read:
+            return
         ori_state = self.is_paused
         self.is_paused = True
         self.audio.set_pause(1)
-        time.sleep(0.1) # wait for thread to pause
+        self.lock_read = True
+        time.sleep(0.5) # wait for thread to pause
         
         logger.debug(f'current time: {self.audio.get_pts() * 1000}')
         new_time = (self.audio.get_pts() + seconds) * 1000
@@ -160,10 +182,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         elif new_time > self.audio.get_metadata()['duration'] * 1000:
             new_time = self.audio.get_metadata()['duration'] * 1000
             
-        self.lock_read = True
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
-        self.lock_read = False
         
         ret, frame = self.cap.read()
         if not ret:
@@ -187,14 +207,18 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'forward {seconds} seconds')
+        self.lock_read = False
     
     def rewind(self, seconds):
         if self.quit_loop:
             return
+        if self.lock_read:
+            return
         ori_state = self.is_paused
         self.is_paused = True
         self.audio.set_pause(1)
-        time.sleep(0.1) # wait for thread to pause
+        self.lock_read = True
+        time.sleep(0.5) # wait for thread to pause
         
         logger.debug(f'current time: {self.audio.get_pts() * 1000}')
         new_time = (self.audio.get_pts() - seconds) * 1000
@@ -204,10 +228,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         elif new_time > self.audio.get_metadata()['duration'] * 1000:
             new_time = self.audio.get_metadata()['duration'] * 1000
         
-        self.lock_read = True
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
-        self.lock_read = False
         
         ret, frame = self.cap.read()
         if not ret:
@@ -215,9 +237,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.is_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
-            self.lock_read = True
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
-            self.lock_read = False
             ret, frame = self.cap.read()
             if not ret:
                 logger.error('Read frame failed.')
@@ -233,9 +253,12 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'rewind {seconds} seconds')
-        
+        self.lock_read = False
+
     def set_time(self, new_time):
         if self.quit_loop:
+            return
+        if self.lock_read:
             return
         if new_time < 0:
             new_time = 0
@@ -245,12 +268,11 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         ori_state = self.is_paused
         self.is_paused = True
         self.audio.set_pause(1)
-        time.sleep(0.1) # wait for thread to pause
-        
         self.lock_read = True
+        time.sleep(0.5) # wait for thread to pause
+        
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time*1000)
         self.audio.seek(new_time, relative=False)
-        self.lock_read = False
         
         ret, frame = self.cap.read()
         if not ret:
@@ -258,9 +280,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.is_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
-            self.lock_read = True
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
-            self.lock_read = False
             ret, frame = self.cap.read()
             if not ret:
                 logger.error('Read frame failed.')
@@ -276,7 +296,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.audio.set_pause(1 if ori_state else 0)
         
         logger.debug(f'set time to {new_time} second')
-        
+        self.lock_read = False
+
     def get_time(self):
         if self.quit_loop:
             return -1
@@ -290,7 +311,6 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         if self.quit_loop:
             return -1
         if self.lock_read:
-            logger.debug('lock_read is True')
             return -1
         return self.total_time
     
@@ -307,18 +327,18 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
                         self.is_paused = True
                         continue
                     pFrame = cv2_to_pixmap(frame)
-                    
-                    audio_time = self.audio.get_pts() * 1000  # Get audio time in milliseconds
+                    audio_time = self.audio.get_pts() * 1000  # Get audio time in milliseconds, often crush program
                     cap_time = self.cap.get(cv2.CAP_PROP_POS_MSEC)
                     if abs(audio_time - cap_time) > 100: # Adjust video time to audio time
                         self.cap.set(cv2.CAP_PROP_POS_MSEC, audio_time)
                     self.update(pFrame)
                     self.cur_time = audio_time / 1000
-                    time.sleep(delay)
+                time.sleep(delay)
+            logger.debug('End of play')
         
-        logger.debug('Start playing video')
         self.play_thread = threading.Thread(target=func)
         self.play_thread.start()
+        logger.debug('Start playing video')
 
 class VideoControlPanel(QtWidgets.QWidget):
     def __init__(self, parent=None, video_player=None):
@@ -405,6 +425,8 @@ class VideoTimeSlider(QtWidgets.QSlider):
         self.video_player = video_player
         self.setOrientation(QtCore.Qt.Orientation.Horizontal)
         self.setFixedWidth(640)
+        while self.video_player.get_total_time_s() == -1:
+            time.sleep(0.5)
         self.setRange(0, int(self.video_player.get_total_time_s()))
         self.setValue(0)
         self.pressed = False
@@ -422,6 +444,7 @@ class VideoTimeSlider(QtWidgets.QSlider):
     def mouseMoveEvent(self, event):
         x = event.pos().x()
         value = self.maximum() * x / self.width()
+        logger.debug(f'value: {value}')
         self.setValue(value)
         self.video_player.set_time(value)
         
