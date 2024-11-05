@@ -111,17 +111,6 @@ class VideoPlayer(QtWidgets.QLabel):
         if event.button() == QtCore.Qt.LeftButton:
             self.pause()
         
-    def keyPressEvent(self, event):
-        if self.quit_loop:
-            return
-        logger.debug(f'key: {event.key()}')
-        if event.key() == QtCore.Qt.Key.Key_Space:
-            self.pause()
-        elif event.key() == QtCore.Qt.Key.Key_Right:
-            self.forward(10)
-        elif event.key() == QtCore.Qt.Key.Key_Left:
-            self.rewind(10)
-        
     def update(self, img):
         self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
 

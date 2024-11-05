@@ -6,6 +6,7 @@ import argparse
 import json
 
 logger = logging.getLogger()
+RETRY_TIMES = 10
 
 class SocketInterface():
     def __init__(self, host='localhost', port=8080, buffer_size=1024):
@@ -53,7 +54,7 @@ class SocketInterface():
             self.sock.close()
             logger.info("Close previous client")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        for _ in range(10):
+        for _ in range(RETRY_TIMES):
             try:
                 self.sock.connect((self.host, self.port))
                 break
