@@ -81,7 +81,6 @@ class MainWindow(QtWidgets.QWidget):
             "updateRuntimeImg": signals.updateRuntimeImg,
             "returnedDatabaseMenu": signals.returnedDatabaseMenu,
             "returnedRecordMenu": signals.returnedRecordMenu
-            
         }
         self.require_data_count = {
             "errorOccor": 1,
@@ -310,15 +309,15 @@ class MainWindow(QtWidgets.QWidget):
         
     def request_database_menu(self):
         logger.debug("open database menu")
-        self.database_menu = DatabaseMenu()
+        self.database_menu = DatabaseMenu(self)
         self.si.send_signal("requestDatabaseMenu")
         self.database_menu.exec_()
         if self.database_menu.result is None:
-            logger.warning("No database selected")
+            logger.debug("No database selected")
             self.database_menu = None
             return
         else:
-            logger.debug(f"Selected database: {self.database_menu.result}")
+            logger.info(f"Selected database: {self.database_menu.result}")
             self.member_name_imgs = {}
             self.si.send_signal("selectedDatabase")
             self.si.send_data(self.database_menu.result)
@@ -330,7 +329,6 @@ class MainWindow(QtWidgets.QWidget):
             logger.warning("Database menu page is not opened")
             return
         if database_name == 'EOF':
-            self.database_menu.add_create_new_button()
             self.database_menu.update()
             return
         self.database_menu.addPreview_img(database_name, member_name, pic)

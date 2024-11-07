@@ -715,6 +715,7 @@ class DatabaseMenu(QtWidgets.QDialog):
         self.ui()
         
         self.database_preview_items = {}
+        self.create_new_button = None
     
     def ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -738,9 +739,9 @@ class DatabaseMenu(QtWidgets.QDialog):
         self.member_vbox_layout.addWidget(self.database_preview_items[name])
         
     def add_create_new_button(self):
-        btn = new_button("新增")
-        btn.clicked.connect(self.create_new_database)
-        self.member_vbox_layout.addWidget(btn)    
+        self.create_new_button = new_button("新增")
+        self.create_new_button.clicked.connect(self.create_new_database)
+        self.member_vbox_layout.addWidget(self.create_new_button)    
     
     def addPreview_img(self, database_name, member_name, preview_img):
         if not isinstance(database_name, str):
@@ -759,19 +760,103 @@ class DatabaseMenu(QtWidgets.QDialog):
         self.database_preview_items[database_name].add_member(member_name, preview_img)
         
     def update(self):
+        if self.create_new_button is None:
+            self.add_create_new_button()
+        else:
+            self.member_vbox_layout.removeWidget(self.create_new_button)
+            self.create_new_button.deleteLater()
+            self.add_create_new_button()
         for database_name in self.database_preview_items.keys():
             self.database_preview_items[database_name].update()
-        logger.debug(f'{self.member_vbox_layout.count()}, {self.member_vbox_layout.sizeHint()}, {self.member_scroll_widget.sizeHint()}')
         self.member_scroll_widget.resize(QtCore.QSize(600, len(self.database_preview_items)*220))
         logger.debug(f'new size: {(600, len(self.database_preview_items)*180)}')
 
     def create_new_database(self):
-        self.result = ""
-        self.accept()
+        self.open_new_database_dialog()
+        
+    def confirm_new_database(self, database_name):
+        self.parent().si.send_signal("createDatabase")
+        self.parent().si.send_data(database_name)
+        
+    def open_new_database_dialog(self):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("新增資料庫")
+        dialog.setMinimumSize(300, 150)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        label = QtWidgets.QLabel("輸入資料庫名稱:", dialog)
+        label.setFont(MyFont())
+        layout.addWidget(label)
+        input = QtWidgets.QLineEdit(dialog)
+        input.setFont(MyFont())
+        id = 1
+        while ("database_"+str(id)) in [k.lower() for k in self.database_preview_items.keys()]:
+            id += 1
+        default_name = "Database_" + str(id)
+        input.setPlaceholderText(default_name)
+        layout.addWidget(input)
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        confirm_btn = new_button("確定")
+        def confirm_and_close():
+            if input.text() in self.database_preview_items.keys():
+                self.parent().open_error_dialog("資料庫名稱重複!")
+                return
+            if input.text() == '':
+                self.confirm_new_database(default_name)
+                dialog.close()
+                return
+            self.confirm_new_database(input.text())
+            dialog.close()
+        confirm_btn.clicked.connect(confirm_and_close)
+        confirm_btn.setFont(MyFont())
+        cancel_btn = new_button("取消")
+        cancel_btn.clicked.connect(dialog.close)
+        cancel_btn.setFont(MyFont())
+        btn_layout.addWidget(confirm_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        dialog.setLayout(layout)
+        dialog.exec()
         
     def select_database(self, database_name):
         self.result = database_name
         self.accept()
+        
+    def delete_database(self, database_name):
+        self.open_confirm_dialog(f'{database_name}')
+        
+    def confirm_delete_database(self, database_name):
+        self.parent().si.send_signal("deleteDatabase")
+        self.parent().si.send_data(database_name)
+        self.member_vbox_layout.removeWidget(self.database_preview_items[database_name])
+        self.database_preview_items[database_name].deleteLater()
+        self.database_preview_items.pop(database_name)
+        self.update()
+        
+    def open_confirm_dialog(self, database_name):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("確認刪除")
+        dialog.setMinimumSize(300, 150)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        label = QtWidgets.QLabel(f'確定要刪除"{database_name}"嗎?', dialog)
+        label.setFont(MyFont())
+        layout.addWidget(label)
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        confirm_btn = new_button("確定")
+        def confirm_and_close():
+            self.confirm_delete_database(database_name)
+            dialog.close()
+        confirm_btn.clicked.connect(confirm_and_close)
+        confirm_btn.setFont(MyFont())
+        cancel_btn = new_button("取消")
+        cancel_btn.clicked.connect(dialog.close)
+        cancel_btn.setFont(MyFont())
+        btn_layout.addWidget(confirm_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        dialog.setLayout(layout)
+        dialog.exec()
         
     def closeEvent(self, event):
         self.result = None
@@ -788,27 +873,49 @@ class DatabaseMenuItem(QtWidgets.QWidget):
         self.ui()
     
     def ui(self):
+        frame = QtWidgets.QFrame(self)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         
-        self.name_button = new_button(self.database_name)
-        self.name_button.clicked.connect(self.select_database)
-        layout.addWidget(self.name_button)
+        name_label = QtWidgets.QLabel(self.database_name)
+        name_label.setFont(MyFont())
+        name_label.setAutoFillBackground(True)
+        name_label.setFixedWidth(100)
+        layout.addWidget(name_label)
+        
+        op_layout = QtWidgets.QHBoxLayout()
+        op_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        select_button = new_button("Select")
+        del_button = new_button("Delete")
+        select_button.setFixedSize(100, 30)
+        del_button.setFixedSize(100, 30)
+        select_button.clicked.connect(self.select_database)
+        del_button.clicked.connect(self.delete_database)
+        op_layout.addWidget(select_button)
+        op_layout.addWidget(del_button)
+        layout.addLayout(op_layout)
         
         pic_layout = QtWidgets.QHBoxLayout()
         for i in range(5): # at most 5 preview images
             img_label = QtWidgets.QLabel(self)
-            img_label.setFixedSize(100, 100)
             self.preview_imgs.append(img_label)
             pic_layout.addWidget(self.preview_imgs[i])
             if i != 4:
                 pic_layout.addStretch(1)
         layout.addLayout(pic_layout)
         
-        self.setLayout(layout)
+        frame.setLayout(layout)
+        frame.setObjectName("frame")
+        frame.setStyleSheet("#frame {border :2px solid #607cff;}")
+        _layout = QtWidgets.QHBoxLayout(self)
+        _layout.addWidget(frame)
+        self.setLayout(_layout)
         
     def select_database(self):
         self.menu.select_database(self.database_name)
+        
+    def delete_database(self):
+        self.menu.delete_database(self.database_name)
         
     def get_names(self):
         return self.name_list

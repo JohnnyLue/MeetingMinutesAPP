@@ -51,6 +51,8 @@ class Backend():
         # connect signals
         self.si.connect_signal("selectedVideo", self.set_video_path, True)
         self.si.connect_signal("selectedDatabase", self.set_database_path, True)
+        self.si.connect_signal("deleteDatabase", self.delete_database, True)
+        self.si.connect_signal("createDatabase", self.create_database, True)
         self.si.connect_signal("selectedRecord", self.set_record_file, True)
         self.si.connect_signal("testRun", lambda: self.run(True), False)
         self.si.connect_signal("startProcess", lambda: self.run(False), False)
@@ -333,23 +335,55 @@ class Backend():
             self.update_progress()
      
     def set_database_path(self, database_name):
-        if database_name ==  "": # create new database
-            new_name = "Database"
-            i = 1
-            while os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], new_name)):
-                new_name = f"Database_{i}"
-                i+=1
-            logger.debug(f"Create new database: {new_name}")
-            database_name = new_name
-            new_dir = os.path.join(config['STORE_DIR']['DATABASE_ROOT'], new_name)
-            os.makedirs(new_dir)
         if not isinstance(database_name, str):
             self.raise_error("Invalid database name.")
+            return
+        
+        if not os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)):
+            self.raise_error("Database not found.")
             return
         
         self.fdm = FaceDatabaseManager(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
         self.database_name = database_name
         logger.info(f"Set database path:\"{database_name}\"")
+    
+    def create_database(self, database_name):
+        if not isinstance(database_name, str):
+            self.raise_error("Invalid database name.")
+            return
+        if database_name == "":
+            self.raise_error("Invalid database name.")
+            return
+        if os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)):
+            self.raise_error("Database already exists.")
+            return
+        
+        logger.info(f"Create new database: {database_name}")
+        new_dir = os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)
+        os.makedirs(new_dir)
+        
+        self.si.send_signal("returnedDatabaseMenu")
+        self.si.send_data(database_name)
+        self.si.send_data("")
+        no_member_img = cv2.imread("no_member.png")
+        self.si.send_image(no_member_img)
+        
+        self.si.send_signal("returnedDatabaseMenu")
+        self.si.send_data('EOF')
+        self.si.send_data('')
+        self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
+    
+    def delete_database(self, database_name):
+        if isinstance(database_name, str):
+            if os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)):
+                logger.info(f"Delete database: {database_name}")
+                try:
+                    os.rmdir(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
+                except:
+                    self.raise_error("Failed to delete database.")
+                    return
+            else:
+                self.raise_error("Database not found.")
     
     def get_database_menu(self):
         databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], '*'))
