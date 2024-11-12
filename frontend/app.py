@@ -466,7 +466,7 @@ class MainWindow(QtWidgets.QWidget):
         logger.debug(f"Receive record: {record_name}, {video_path}, {database_name}")
        
     def open_error_dialog(self, message):
-        logger.info(f"Error occor: {message}")
+        logger.error(f"Error occur: {message}")
         if not isinstance(message, str) or message is None:
             logger.warning("Invalid error message")
             return
