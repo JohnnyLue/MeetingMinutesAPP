@@ -5,6 +5,7 @@ import glob
 import logging
 import time
 import os
+import shutil
 import threading
 
 from FaceAnalyzer import FaceAnalyzer
@@ -64,13 +65,14 @@ class Backend():
         self.si.connect_signal("requestAllMemberImg", self.get_all_member_img, False)
         self.si.connect_signal("requestDatabaseMenu", self.get_database_menu, False)
         self.si.connect_signal("requestRecordMenu", self.get_record_menu, False)
+        self.si.connect_signal("deleteRecord", self.delete_record, True)
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
         self.record = None
+        self.fdm = None
         
         self.running = False
-        self.test_running = False
         self.database_name = None
         self.transcribe_thread = None
         self.run_thread = None
@@ -79,6 +81,7 @@ class Backend():
         self.cur_progress = 0
         self.total_progress = 100
         self.update_progress_lock = False
+        
         
         def recv_loop():
             while True:
@@ -95,15 +98,14 @@ class Backend():
                     
         threading.Thread(target=recv_loop).start()
     
-    def run(self, test=False):
+    def run(self, test):
         if self.running:
-            self.raise_error("Running process is already running.")
-            return
-        if self.test_running:
-            self.raise_error("Test running process is already running.")
+            self.raise_error("Process is already running.")
             return
         
+        self.si.send_signal("processStarted")
         if not test and self.record is None:
+            logger.warning("No record file, create a new one.")
             self.create_empty_record()
         
         self.cur_process = "Checking parameters..."
@@ -130,12 +132,15 @@ class Backend():
         if self.database_name is None:
             self.raise_error("Please select a database.")
             return
+        if not os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], self.database_name)):
+            self.raise_error("Database not found.")
+            return
         self.cur_progress+=1
         self.update_progress()
         
         self.cur_process = "Setting up..."
         self.cur_progress = 0
-        self.total_progress = 6
+        self.total_progress = 5
         self.update_progress()
         try:
             self.vm = VideoManager(self.vm.get_video_path())
@@ -147,10 +152,8 @@ class Backend():
             self.update_progress()
             
             self.fdm.set_face_recognizer(self.fr)
-            self.cur_progress+=1
-            self.update_progress()
-            
             self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
+            self.fdm.load_data()
             self.cur_progress+=1
             self.update_progress()
             
@@ -184,17 +187,21 @@ class Backend():
             self.total_progress = 0
             self.update_progress()
             
-            #self.sm.transcribe(self.vm.get_video_path())
-            #self.transcribe_thread = threading.Thread(target=lambda: self.sm.transcribe(self.vm.get_video_path()))
-            self.sm.load_script_file('script.txt') # for test
-            #self.transcribe_thread.start()
+            logger.debug("Start transcribing")
+            self.sm.transcribe(self.vm.get_video_path())
+            #self.transcribe_thread = threading.Thread(target=self.sm.transcribe, args=(self.vm.get_video_path(),))
         
         def main_run(test):
+            start_time = time.time()
             self.cur_process = "Running..."
             self.total_progress = self.vm.get_total_frame()
             self.cur_progress = 0
             self.update_progress()
             end_safly = False
+            # to deside wether to get name this round, if bboxes are not change too much (position, amount), use last round's name
+            last_round_face_boxes = []
+            last_round_names = []
+            nochange_counter = 0
             while self.running:                
                 for i in range(10):
                     frame = self.vm.next_frame()
@@ -223,17 +230,56 @@ class Backend():
                     bbox[2] /= self.vm.width
                     bbox[3] /= self.vm.height
                     bboxes.append(bbox)
+                
+                face_boxes = sorted(list(zip(faces, bboxes)), key=lambda x: x[1][0])
+        
+                need_to_get_name = True
+                if len(last_round_face_boxes) == len(face_boxes):
+                    closest = 1
+                    for i in range(len(face_boxes)-1):
+                        dis = face_boxes[i+1][1][0] - face_boxes[i][1][0]
+                        closest = min(closest, dis)
+                    logger.debug(f"closest face dis: {closest}")
+                    if closest > 0.1: # no face too close to each other
+                        for i in range(len(face_boxes)):
+                            # diff = [dx1, dy1, dx2, dy2]
+                            diff = np.array(face_boxes[i][1]) - np.array(last_round_face_boxes[i][1])
+                            dis1 = np.sqrt(diff[0]**2 + diff[1]**2)
+                            dis2 = np.sqrt(diff[2]**2 + diff[3]**2)
+                            dis = (dis1 + dis2) / 2
+                            logger.debug(f"bbox diff: {dis}")
+                            if dis > 0.1:
+                                break
+                    need_to_get_name = False
+
                 names = []
-                valid_faces = []
-                valid_bboxes = []
-                for i in range(len(faces)):
-                    name = self.fr.get_name(frame, faces[i], self.fdm, create_new_face=False if test else True)
-                    if name is None:
-                        continue
-                    names.append(name)
-                    valid_faces.append(faces[i])
-                    valid_bboxes.append(bboxes[i])
-                    
+                valid_faces_bboxes = []
+                if need_to_get_name or nochange_counter >= 150:
+                    nochange_counter = 0
+                    for i in range(len(face_boxes)):
+                        name, is_new = self.fr.get_name(frame, face_boxes[i][0], self.fdm, create_new_face=False if test else True)
+                        if name is None:
+                            continue
+                        if is_new:
+                            self.si.send_signal("newMemberImage")
+                            self.si.send_data(name)
+                            self.si.send_image(self.fdm.get_images_by_name(name)[0])
+                            
+                        names.append(name)
+                        valid_faces_bboxes.append(face_boxes[i])
+                    logger.debug(f"Names: {names}")
+                    last_round_face_boxes = valid_faces_bboxes
+                    last_round_names = names
+                else:
+                    nochange_counter+=1
+                    valid_faces_bboxes = face_boxes
+                    last_round_face_boxes = face_boxes                        
+                    names = last_round_names
+                    logger.debug(f"use last Names: {names}")
+                        
+                valid_faces = [x[0] for x in valid_faces_bboxes]
+                valid_bboxes = [x[1] for x in valid_faces_bboxes]
+                
                 self.fa.update(zip(names, [self.fr.get_landmark(x) for x in valid_faces]))
                 
                 statuses = []
@@ -241,7 +287,6 @@ class Backend():
                     status = self.fa.is_talking(names[i])
                     statuses.append(status)
                     
-                time_s = self.vm.get_time()
                 frame_idx = self.vm.get_cur_frame_idx()
                 
                 if not test:
@@ -252,20 +297,20 @@ class Backend():
                     for i in range(len(valid_faces)):
                         x1, y1, x2, y2 = valid_bboxes[i]
                         cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0) if statuses[i] else (225, 0, 0), 5)
-                        frame = PutText(frame, "Not Found" if not names[i] else names[i], (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
+                        frame = PutText(frame, names[i]+f"__{i}", (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
                         #frame = PutText(frame, self.sm.get_script_by_time(time_s), (0, 0), fontScale=50)
                 else:
                     for i in range(len(valid_faces)):
                         x1, y1, x2, y2 = valid_bboxes[i]
                         frame = PutText(frame, "Not Found" if not names[i] else names[i], (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
-                    for i in range(len(faces)):
-                        x1, y1, x2, y2 = bboxes[i]
+                        cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0) if statuses[i] else (225, 0, 0), 5)
+                    for bbox in bboxes:
+                        x1, y1, x2, y2 = bbox
                         cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0), 5)
                 
                 self.si.send_signal("updateRuntimeImg")
                 self.si.send_image(cv2.resize(frame, (640, 360))) # 640*360
                 
-                cv2.waitKey(10)
                 self.cur_progress+=1
                 self.update_progress()
                 
@@ -277,6 +322,10 @@ class Backend():
             self.running = False
             if not test and end_safly:
                 self.save_record()
+                self.set_record_file(self.record.get_info()['record_name'])
+            self.si.send_signal("processFinished")
+            logger.info(f"Process finished/terminated in {time.time() - start_time} seconds")
+            
         
         self.run_thread = threading.Thread(target=main_run, args=(test,))
         self.run_thread.start()
@@ -284,10 +333,16 @@ class Backend():
     def get_record_menu(self):
         files = glob.glob(os.path.join(config['STORE_DIR']['RECORD'], '*.json'))
         logger.debug(files)
+        self.si.send_signal("returnedRecordMenu")
+        self.si.send_data("CLEAR_RECORDS")
+        self.si.send_data("")
+        self.si.send_data("")
+        self.si.send_data("")
+        
         for file in files:
             record = Record()
             logger.debug(f"Loading record: {file}")
-            record.load(file)
+            record.load_info(file)
             info = record.get_info()
             logger.debug(info)
             if info is None:
@@ -301,6 +356,19 @@ class Backend():
     def create_empty_record(self):
         self.record = Record()
         
+    def delete_record(self, record_name):
+        if not isinstance(record_name, str):
+            self.raise_error("Invalid record name.")
+            return
+        
+        record_path = os.path.join(config['STORE_DIR']['RECORD'], record_name + ".json")
+        if os.path.exists(record_path):
+            logger.info(f"Delete record: {record_name}")
+            os.remove(record_path)
+            self.get_record_menu()
+        else:
+            self.raise_error("Record not found.")
+    
     def set_record_file(self, record_name):
         self.record = Record()
         logger.info(f"Set record file: {record_name}")
@@ -309,12 +377,25 @@ class Backend():
             self.raise_error("Failed to load record file.")
             self.record = None
             return
+        logger.debug(self.record.get_info())
         self.set_video_path(self.record.get_info()['video_path'])
         self.set_database_path(self.record.get_info()['database_name'])
-        self.get_all_member_img()
         for key, _ in default_params.items():
             self.set_param((key, self.record.get_parameter(key)))
         self.get_params()
+        self.get_all_member_img()
+        self.get_script()
+        
+    def get_script(self):
+        if self.record is None:
+            self.raise_error("Please select a record.")
+            return
+        logger.debug("Request script")
+        if self.record.get_script() is None:
+            self.raise_error("No script in this record.")
+            return
+        self.si.send_signal("updateScript")
+        self.si.send_data(self.record.get_script())
         
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")
@@ -335,6 +416,7 @@ class Backend():
             self.update_progress()
      
     def set_database_path(self, database_name):
+        self.database_name = None
         if not isinstance(database_name, str):
             self.raise_error("Invalid database name.")
             return
@@ -374,16 +456,20 @@ class Backend():
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
     
     def delete_database(self, database_name):
-        if isinstance(database_name, str):
-            if os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)):
-                logger.info(f"Delete database: {database_name}")
-                try:
-                    os.rmdir(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
-                except:
-                    self.raise_error("Failed to delete database.")
-                    return
-            else:
-                self.raise_error("Database not found.")
+        if not isinstance(database_name, str):
+            return
+        if os.path.exists(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name)):
+            try:
+                shutil.rmtree(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
+                if self.database_name == database_name:
+                    self.database_name = None
+                    self.si.send_signal("returnedMemberImg")
+                    self.si.send_data("CLEAR_IMGS") # start of data
+                    self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
+            except:
+                self.raise_error("Failed to delete database.")
+        else:
+            self.raise_error("Database not found.")
     
     def get_database_menu(self):
         databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], '*'))
@@ -424,9 +510,16 @@ class Backend():
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
         
     def get_all_member_img(self):
+        if self.fdm is None:
+            self.raise_error("Please select a database.")
+            return
         if self.database_name is None:
             self.raise_error("Please select a database.")
             return
+        
+        self.si.send_signal("returnedMemberImg")
+        self.si.send_data("CLEAR_IMGS") # start of data
+        self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
         
         names = self.fdm.get_name_list()
         for name in names:
@@ -445,6 +538,12 @@ class Backend():
          
     def get_params(self):
         logger.debug("Request parameters")
+        
+        # tell frontend to clear all parameters
+        self.si.send_signal("updateParam")
+        self.si.send_data("CLEAR_PARAMS")
+        self.si.send_data([""])
+        
         for key, _ in default_params.items():
             _key = key
             if _key in param_aliases:
@@ -470,6 +569,10 @@ class Backend():
                 self.si.send_signal("updateParam")
                 self.si.send_data(_key)
                 self.si.send_data([_value])
+                
+        self.si.send_signal("updateParam")
+        self.si.send_data("EOF")
+        self.si.send_data([""])
     
     def update_progress(self):
         '''
@@ -502,10 +605,14 @@ class Backend():
     def raise_error(self, error_message):
         self.si.send_signal("errorOccor")
         self.si.send_data(error_message)
+        self.si.send_signal("processFinished")
+        self.cur_process = "Idle"
+        self.cur_progress = 0
+        self.total_progress = 0
+        self.update_progress()
         
     def terminateProcess(self):
         self.running = False
-        self.test_running = False
         
         self.cur_process = "Terminating process..."
         self.cur_progress = 0
@@ -528,13 +635,12 @@ class Backend():
         
     def save_record(self):
         if self.transcribe_thread is not None:
-            self.cur_process = "Waiting for transcribing..."
-            self.cur_progress = 0
-            self.total_progress = 0
-            self.update_progress()
-            self.transcribe_thread.join()
-        if self.run_thread is not None: # basically it shouldn't be None
-            self.run_thread.join()
+            if self.transcribe_thread.is_alive():
+                self.cur_process = "Waiting for transcribing..."
+                self.cur_progress = 0
+                self.total_progress = 0
+                self.update_progress()
+                self.transcribe_thread.join()
             
         if self.record is None:
             logger.warning("No record to save")

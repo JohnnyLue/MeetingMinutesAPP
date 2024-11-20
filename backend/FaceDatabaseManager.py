@@ -82,6 +82,7 @@ class FaceDatabaseManager:
         return self.names
     
     def get_images_by_name(self, name):
+        self._load_names()
         if name not in self.names:
             logger.warning(f'Name "{name}" is not in the database.')
             return None
@@ -172,9 +173,6 @@ class FaceDatabaseManager:
         else:
             self.name_embeddings_dict[name] = np.append(self.name_embeddings_dict[name], np.reshape(embedding, (1, 512)), axis = 0)
         logger.debug(f'Add embedding for "{name}"')
-        
-        for item in self.name_embeddings_dict.items():
-            logger.debug(item[0], item[1].shape)
     
     def smart_merge_faces(self, threshold = 0.3):
         '''

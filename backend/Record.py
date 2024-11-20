@@ -6,11 +6,12 @@ import os
 logger = logging.getLogger()
 
 class Record:
-    def __init__(self):
+    def __init__(self, base_dir = "records"):
         self.info = {}
         self.parameters = {}
         self.data = {}
         self.script = {}
+        self.base_dir = base_dir
         self.file_path = None
     
     def clear(self):
@@ -20,16 +21,46 @@ class Record:
         self.script = {}
         self.file_path = None
     
+    def load_info(self, file_path):
+        # only load info part
+        if not self._check_format(file_path):
+            logger.error(f"Invalid record file, cannot load: {file_path}")
+            return
+        try:
+            with open(file_path, "r") as file:
+                json_data = json.load(file)                
+                self.info = json_data["info"]
+                if self.info is None:
+                    self.info = {}
+        except:
+            logger.error(f"Cannot load record file: {file_path}")
+            self.clear()
+            return
+        self.file_path = file_path
+    
     def load(self, file_path):
         if not self._check_format(file_path):
             logger.error(f"Invalid record file, cannot load: {file_path}")
             return
-        with open(file_path, "r") as file:
-            json_data = json.load(file)
-            self.info = json_data["info"]
-            self.parameters = json_data["parameters"]
-            self.data = json_data["data"]
-            self.script = json_data["script"]
+        try:
+            with open(file_path, "r") as file:
+                json_data = json.load(file)                
+                self.info = json_data["info"]
+                if self.info is None:
+                    self.info = {}
+                self.parameters = json_data["parameters"]
+                if self.parameters is None:
+                    self.parameters = {}
+                self.data = json_data["data"]
+                if self.data is None:
+                    self.data = {}
+                self.script = json_data["script"]
+                if self.script is None:
+                    self.script = {}
+        except:
+            logger.error(f"Cannot load record file: {file_path}")
+            self.clear()
+            return
         self.file_path = file_path
         
     def set_parameter(self, key, value):
@@ -51,6 +82,8 @@ class Record:
         if len(self.script) == 0:
             logger.warning("No script in record")
             return None
+        logger.debug("Get script from record")
+        logger.debug(self.script)
         return self.script
     
     def get_data(self):
@@ -70,7 +103,7 @@ class Record:
             logger.error("Invalid record name")
             return
         self.info = {"record_name": record_name, "create_time": create_time, "video_path": video_path, "database_name": database_name}
-        self.file_path = record_name + ".json"
+        self.file_path = os.path.join(self.base_dir, record_name + ".json")
         logger.debug(f"Set info: record_name = {record_name}, video_path = {video_path}, database_name = {database_name}")
     
     def write_data(self, frame_idx, bboxes, names, statuses):
@@ -81,10 +114,15 @@ class Record:
         self.script = script_result
         
     def export(self, file_path = None):
+        logger.debug(f"Export record, file_path: {file_path}")
+        logger.debug(f"info {self.info}, parameters: {self.parameters}, data_len: {len(self.data)}, script: {self.script}")
         if file_path is not None:
             try:
-                with open(file_path, "w") as file:
-                    json.dump({"info": self.info, "parameters": self.parameters, "data": self.data, "script": self.script}, file_path)
+                if not file_path.endswith(".json") and file_path.count(".") == 0:
+                    file_path = file_path + ".json"
+                    
+                with open(os.path.join(self.base_dir, file_path), "w") as file:
+                    json.dump({"info": self.info, "parameters": self.parameters, "data": self.data, "script": self.script}, file)
             except:
                 logger.error("Cannot export record file")
             return
@@ -92,12 +130,13 @@ class Record:
             if self.file_path is None:
                 logger.error("No file path to export record")
                 return
-            try:
-                with open(self.file_path, "w") as file:
-                    json.dump({"info": self.info, "parameters": self.parameters, "data": self.data, "script": self.script}, self.file_path)
-            except:
-                logger.error("Cannot export record file")
-                return
+            #try:
+            logger.debug(f"Export record to {self.file_path}")
+            with open(self.file_path, "w") as file:
+                json.dump({"info": self.info, "parameters": self.parameters, "data": self.data, "script": self.script}, file)
+            #except:
+            #    logger.error("Cannot export record file")
+            #    return
         return
     
     def _check_format(self, file_path):

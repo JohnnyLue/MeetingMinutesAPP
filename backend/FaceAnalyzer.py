@@ -30,8 +30,8 @@ class FaceAnalyzer:
         med = np.median(values)
         max = np.max(values)
         min = np.min(values)
-        logger.debug(f"Name \"{name}\" median: {med}, max: {max}, min: {min}")
-        logger.debug(f"values: {values}")
+        #logger.debug(f"Name \"{name}\" median: {med}, max: {max}, min: {min}")
+        #logger.debug(f"values: {values}")
         ### visualize in cmd
         #for name in self.name_open_value_dict.keys():
         #print(name)
@@ -64,9 +64,6 @@ class FaceAnalyzer:
             self.name_open_value_dict[name].append(self.mouth_open(lmk))
             names.append(name)
             
-        logger.debug(f"Names: {names}")
         for name in self.name_open_value_dict.keys():
-            logger.debug(f"Name: {name}")
             if name not in names:
-                logger.debug(f"add -1 ")
                 self.name_open_value_dict[name].append(-1) # absent person

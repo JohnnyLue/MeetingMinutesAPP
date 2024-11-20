@@ -86,11 +86,12 @@ class FaceRecognizer(FaceAnalysis):
         output:
         pred_name_score: [name, score] of predited result
         None if face is not known and creating_new_face is set to false
+        and a bool to show if the face is new added
         '''
         face_emb_dict = fdm.get_name_embeddings_dict()
         if face.det_score < GOOD_FACE_QUALITY: # make sure the quality of face is good
             logger.debug('Bad quality face.')
-            return None
+            return None, False
         
         if create_new_face:
             face_image = self._crop_face_image(image, face)
@@ -102,34 +103,34 @@ class FaceRecognizer(FaceAnalysis):
         if len(face_emb_dict) == 0:
             if create_new_face:
                 if self.get(face_image) == []:
-                    return None
+                    return None, False
                 
                 logger.info('No face in database, creating new face...')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
-                return new_name
+                return new_name, True
             else:
                 logger.debug('No face in database, and not creating new face.')
-                return None
+                return None, False
             
         pred_name_score = self._search_similar(face.normed_embedding, face_emb_dict)
         if pred_name_score is None:
             logger.debug('No similar face found.')
-            return None
+            return None, False
         
         if pred_name_score[1] < search_threshold and create_new_face:
             if pred_name_score[1] < new_face_threshold: # create new face in database
                 logger.info('Unrecognized face, creating new face in database')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
-                return new_name
+                return new_name, True
             else:
                 logger.info('Add new face data to this member')
                 fdm.add_new_face(face_image, name = pred_name_score[0], embedding = face.normed_embedding) # add new face data to this member
-                return pred_name_score[0]
+                return pred_name_score[0], False
             
         if pred_name_score[1] > new_face_threshold: # atleast not a new face
-            return pred_name_score[0]
+            return pred_name_score[0], False
         
-        return None
+        return None, False
     
     def get_landmark(self, face):
         if len(face.landmark_2d_106) == 106:
