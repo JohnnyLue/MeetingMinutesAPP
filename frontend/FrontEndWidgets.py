@@ -173,7 +173,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
-        
+        self.cur_time = new_time
+
         ret, frame = self.cap.read()
         if not ret:
             logger.debug('End of video')
@@ -219,7 +220,8 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
-        
+        self.cur_time = new_time
+
         ret, frame = self.cap.read()
         if not ret:
             logger.debug('End of video')
@@ -262,6 +264,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time*1000)
         self.audio.seek(new_time, relative=False)
+        self.cur_time = new_time
         
         ret, frame = self.cap.read()
         if not ret:
@@ -947,6 +950,7 @@ class SubtitleArea(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(400)
+        self.video_player = None
         self.time_subtitle = {}
         self.ui()
         
@@ -974,7 +978,7 @@ class SubtitleArea(QtWidgets.QWidget):
         total_height = 0
         for _time, subtitle in self.time_subtitle.items():
             time_str = time.strftime("%H:%M:%S", time.gmtime(float(_time)))
-            subtitle_item = SubtitleItem(time_str, subtitle, self)
+            subtitle_item = SubtitleItem(float(_time), time_str, subtitle, self)
             self.subtitle_vbox_layout.addWidget(subtitle_item)
             logger.debug(f'subtitle height:{subtitle_item.sizeHint().height()}')
             total_height += subtitle_item.sizeHint().height() + 20
@@ -989,30 +993,55 @@ class SubtitleArea(QtWidgets.QWidget):
             self.time_subtitle[start_time] = subtitle
             logger.debug(f'add subtitle: {d}')
         self.update()
+    
+    def connect_video_player(self, video_player):
+        self.video_player = video_player
+        
+    def subtitle_pressed(self, time_s, subtitle):
+        pass
+        #if self.video_player is None:
+        #    return
+        logger.debug(f'click subtitle: {time_s} {subtitle}')
+        self.video_player.set_time(time_s)
             
 class SubtitleItem(QtWidgets.QWidget):
-    def __init__(self, time, subtitle, parent=None):
+    def __init__(self, time_s, time, subtitle, panel, parent=None):
         super().__init__(parent)
         self.setFixedWidth(360)
         self.setMinimumHeight(50)
+        self.time_s = time_s
         self.time = time
         self.subtitle = subtitle
+        self.panel = panel
         self.ui()
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
         layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         
-        time_label = QtWidgets.QLabel(f'{self.time}: ', self)
-        time_label.setFont(MyFont())
-        layout.addWidget(time_label)
+        self.time_label = QtWidgets.QLabel(f'{self.time}: ', self)
+        self.time_label.setFont(MyFont())
+        layout.addWidget(self.time_label)
         
-        subtitle_label = QtWidgets.QLabel(self.subtitle, self)
-        subtitle_label.setFont(MyFont())
-        subtitle_label.setWordWrap(True)
-        layout.addWidget(subtitle_label)
+        self.subtitle_label = QtWidgets.QLabel(self.subtitle, self)
+        self.subtitle_label.setFont(MyFont())
+        self.subtitle_label.setWordWrap(True)
+        layout.addWidget(self.subtitle_label)
         
         self.setLayout(layout)
+        
+    def enterEvent(self, event):
+        logger.debug('hover')
+        self.setAutoFillBackground(True)
+        self.setPalette(QtGui.QPalette(QtGui.QColor(96, 124, 255))) # #607cff
+        
+    def leaveEvent(self, event):
+        logger.debug('leave')
+        self.setAutoFillBackground(False)
+        
+    def mousePressEvent(self, event):
+        self.panel.subtitle_pressed(self.time_s, self.subtitle)
             
 class RecordMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):

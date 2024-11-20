@@ -463,6 +463,7 @@ class MainWindow(QtWidgets.QWidget):
             
             self.video_control = VideoControlPanel(self, self.video_preview)
             self.video_area.addWidget(self.video_control)
+        self.subtitle_area.connect_video_player(self.video_preview)
         self.video_preview.play()
         
     def update_runtime_img(self, pixmap):
