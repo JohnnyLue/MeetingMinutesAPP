@@ -66,6 +66,7 @@ class Backend():
         self.si.connect_signal("requestDatabaseMenu", self.get_database_menu, False)
         self.si.connect_signal("requestRecordMenu", self.get_record_menu, False)
         self.si.connect_signal("deleteRecord", self.delete_record, True)
+        self.si.connect_signal("alterName", self.alter_name, True)
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -485,9 +486,10 @@ class Backend():
                 img_paths = glob.glob(os.path.join(name, '*.png'))
                 logger.debug(img_paths)
                 if len(img_paths) == 0:
-                    logger.warning(f"No image found in {name}, skiped")
-                    continue
-                img = cv2.imread(img_paths[0])
+                    logger.warning(f"No image in {name}")
+                    img = cv2.imread("no_member.png")
+                else:
+                    img = cv2.imread(img_paths[0])
                 preview_imgs.append(img)
                 name_list.append(os.path.basename(name))
                 
@@ -522,12 +524,17 @@ class Backend():
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
         
         names = self.fdm.get_name_list()
+        logger.debug(f"names: {names}")
         for name in names:
             imgs = self.fdm.get_images_by_name(name)
             for img in imgs:
                 self.si.send_signal("returnedMemberImg")
                 self.si.send_data(name)
                 self.si.send_image(img)
+            if len(imgs) == 0:
+                self.si.send_signal("returnedMemberImg")
+                self.si.send_data(name)
+                self.si.send_image(cv2.imread("no_member.png"))
         if len(names) == 0:
             self.si.send_signal("returnedMemberImg")
             self.si.send_data("")
@@ -535,6 +542,31 @@ class Backend():
         self.si.send_signal("returnedMemberImg")
         self.si.send_data("EOF") # end of data
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
+         
+    def alter_name(self, old_new_name):
+        old_name, new_name = old_new_name
+        if self.fdm is None:
+            self.raise_error("Please select a database.")
+            return
+        if self.database_name is None:
+            self.raise_error("Please select a database.")
+            return
+        if not isinstance(old_name, str) or not isinstance(new_name, str):
+            self.raise_error("Invalid name.")
+            return
+        if new_name == "":
+            self.raise_error("Invalid name.")
+            return
+        if old_name == new_name:
+            self.raise_error("New name is the same as old name.")
+            return
+        
+        self.fdm.rename_face(old_name, new_name)
+        logger.info(f"Alter name in {self.database_name}: {old_name} -> {new_name}")
+        
+        # refresh member images
+        self.get_all_member_img()
+        
          
     def get_params(self):
         logger.debug("Request parameters")

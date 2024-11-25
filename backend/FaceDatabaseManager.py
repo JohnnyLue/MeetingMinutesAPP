@@ -76,8 +76,7 @@ class FaceDatabaseManager:
             logger.info('Load data finished')
    
     def get_name_list(self):
-        if len(self.names) == 0:
-            return []
+        self._load_names()
         logger.debug(f'Get name list: {self.names}')
         return self.names
     
@@ -136,27 +135,25 @@ class FaceDatabaseManager:
                 logger.debug(f'Generate embeddings for "{name}"')
         logger.info('Generate embeddings finished')
 
-    def add_new_face(self, image, name = None, embedding = None):
+    def add_new_face(self, image = None, name = None, embedding = None):
         '''
         add new face to current processing session, and save image to database, but not embeddings, return the name of the new face.
         To save embeddings to database, call store_embeddings()
         '''
-        if not self.have_face_recognizer:
-            logger.warning('FaceRecognizer is not set!')
-            return None
-            
         if name is None:
             name = self._generate_name() #generate a new name for new face
         if not os.path.exists(os.path.join(self.database_root, name)):
             os.makedirs(os.path.join(self.database_root, name))
             logger.debug(f'Create new folder for {name}')
             
-        id = 0
-        while os.path.exists(os.path.join(self.database_root, name, f'{id}.png')):
-            id += 1
-        cv2.imwrite(os.path.join(self.database_root, name, f'{id}.png'), image)
-        logger.info(f'Add new face image for {name}')
-        self.add_embedding(name, embedding)
+        if image is not None:
+            id = 0
+            while os.path.exists(os.path.join(self.database_root, name, f'{id}.png')):
+                id += 1
+            cv2.imwrite(os.path.join(self.database_root, name, f'{id}.png'), image)
+            logger.info(f'Add new face image for {name}')
+        if embedding is not None:
+            self.add_embedding(name, embedding)
         
         return name
     
@@ -222,11 +219,24 @@ class FaceDatabaseManager:
         logger.info('Store embeddings finished')
     
     def rename_face(self, old_name, new_name):
+        if not isinstance(old_name, str) or not isinstance(new_name, str):
+            logger.warning('Name is not string')
+            return
+        if new_name == "":
+            logger.warning('new name is empty')
+            return
         if old_name == new_name:
             logger.warning(f'new name "{new_name}" is the same as old name "{old_name}"')
             return
-
+        
         self._load_names()
+        if old_name == "": # create new face
+            if new_name in self.names:
+                logger.warning(f'Name "{new_name}" already exists in the database')
+                return
+            self.add_new_face(name = new_name)
+            return
+        
         if old_name not in self.names:
             logger.warning(f'Name "{old_name}" does not exist in the database')
             return
@@ -258,8 +268,9 @@ class FaceDatabaseManager:
         else:
             os.rename(os.path.join(self.database_root, old_name), os.path.join(self.database_root, new_name))
             logger.info(f'{old_name} renamed to {new_name}')
-            self.name_embeddings_dict[new_name] = self.name_embeddings_dict[old_name]
-            self.name_embeddings_dict.pop(old_name)
+            if old_name in self.name_embeddings_dict.keys():
+                self.name_embeddings_dict[new_name] = self.name_embeddings_dict[old_name]
+                self.name_embeddings_dict.pop(old_name)
                 
     def delete_face(self, name):
         self._load_names()

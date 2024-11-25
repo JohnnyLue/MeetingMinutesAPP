@@ -275,18 +275,17 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(execution_layout)
     
     def resizeEvent(self, event):
-        self.resize_database_widget()
+        self.update_database_widget()
     
     def update_database_member_img(self, name, pixmap):
         if name == "EOF": # all images are sent
-            self.resize_database_widget()
+            self.update_database_widget()
             self.db_scroll_widget.show()
             logger.debug("All member images received")
             return
         
         if name == "CLEAR_IMGS": # clear all images
             self.member_name_imgs = {}
-            self.resize_database_widget()
             logger.debug("Clear member images")
             return
         
@@ -306,9 +305,9 @@ class MainWindow(QtWidgets.QWidget):
         else:
             self.member_name_imgs[name].append(pixmap)
         logger.info(f"New member {name} added")
-        self.resize_database_widget()
+        self.update_database_widget()
         
-    def resize_database_widget(self):
+    def update_database_widget(self):
         cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
         for _ in range(self.db_grid_layout.count()):
             self.db_grid_layout.takeAt(0).widget().deleteLater()
@@ -341,6 +340,13 @@ class MainWindow(QtWidgets.QWidget):
         self.member_detail_window.set_name(name)
         self.member_detail_window.set_imgs(self.member_name_imgs[name])
         self.member_detail_window.exec_()
+        
+    def alter_name(self, old_name, new_name):
+        if self.process_running:
+            logger.warning("Process running, ignore request")
+            return
+        self.si.send_signal("alterName")
+        self.si.send_data((old_name, new_name))
         
     def request_database_menu(self):
         if self.process_running:

@@ -608,7 +608,8 @@ class MemberDetailWindow(QtWidgets.QDialog):
     def set_name(self, name):
         if name is None:
             return
-        name = str(name)
+        if not isinstance(name, str):
+            return
         self.name = name
         self.member_name.setText(name)
 
@@ -622,7 +623,42 @@ class MemberDetailWindow(QtWidgets.QDialog):
         pass
         
     def edit_name(self):
-        pass
+        edit_name_dialog = QtWidgets.QDialog(self)
+        edit_name_dialog.setWindowTitle("編輯名稱")
+        edit_name_dialog.setFixedSize(400, 150)
+        
+        layout = QtWidgets.QVBoxLayout()
+        label = QtWidgets.QLabel("輸入新名稱:")
+        label.setFont(MyFont())
+        layout.addWidget(label)
+        input = QtWidgets.QLineEdit()
+        input.setFont(MyFont())
+        input.setPlaceholderText(self.name)
+        layout.addWidget(input)
+        
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        confirm_btn = new_button("確定")
+        def confirm_and_close():
+            if input.text() == '':
+                edit_name_dialog.close()
+                return
+            logger.debug(f'change name from "{self.name}" to "{input.text().strip()}"')
+            self.parent().alter_name(self.name, input.text().strip())
+            self.set_name(input.text().strip())
+            logger.debug('done')
+            edit_name_dialog.close()
+        confirm_btn.clicked.connect(confirm_and_close)
+        confirm_btn.setFont(MyFont())
+        cancel_btn = new_button("取消")
+        cancel_btn.clicked.connect(edit_name_dialog.close)
+        cancel_btn.setFont(MyFont())
+        btn_layout.addWidget(confirm_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        edit_name_dialog.setLayout(layout)
+        edit_name_dialog.exec()
     
     def add_pic(self):
         pass
@@ -891,7 +927,6 @@ class DatabaseMenuItem(QtWidgets.QWidget):
         name_label = QtWidgets.QLabel(self.database_name)
         name_label.setFont(MyFont())
         name_label.setAutoFillBackground(True)
-        name_label.setFixedWidth(100)
         layout.addWidget(name_label)
         
         op_layout = QtWidgets.QHBoxLayout()
