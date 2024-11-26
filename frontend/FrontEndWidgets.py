@@ -656,13 +656,26 @@ class MemberDetailWindow(QtWidgets.QDialog):
         btn_layout.addWidget(confirm_btn)
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
-        
+
         edit_name_dialog.setLayout(layout)
         edit_name_dialog.exec()
     
     def add_pic(self):
+        self.open_select_pic_dialog()
+         
         pass
-    
+
+    def open_select_pic_dialog(self):
+        dialog = QtWidgets.QFileDialog(self, "選擇照片")
+        dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFiles)
+        dialog.setNameFilter("Images (*.png *.jpg)")   
+        if dialog.exec_():
+            logger.debug(f'add {len(dialog.selectedFiles())} pictures to "{self.name}"')
+            self.parent().si.send_signal("addMemberImg")
+            self.parent().si.send_data((self.name, dialog.selectedFiles()))
+        else:
+            return
+        
     def delete_member(self):
         pass
     

@@ -133,6 +133,7 @@ class MainWindow(QtWidgets.QWidget):
         self.have_runtime_preview = False
         self.member_name_imgs = {}
         self.database_menu = None
+        self.member_detail_window = None
         self.record_menu = None
         self.process_running = False
         
@@ -281,6 +282,9 @@ class MainWindow(QtWidgets.QWidget):
         if name == "EOF": # all images are sent
             self.update_database_widget()
             self.db_scroll_widget.show()
+            if self.member_detail_window is not None:
+                self.pop_member_detail_window(self.member_detail_window.name)
+                
             logger.debug("All member images received")
             return
         
@@ -336,10 +340,15 @@ class MainWindow(QtWidgets.QWidget):
             logger.debug(f"Resize db_scroll_widget to {(self.db_scroll_area.size().width()-25, hei)}")
             
     def pop_member_detail_window(self, name):
+        if self.member_detail_window is not None:
+            self.member_detail_window.close()
+            self.member_detail_window = None
+            
         self.member_detail_window = MemberDetailWindow(self)
         self.member_detail_window.set_name(name)
         self.member_detail_window.set_imgs(self.member_name_imgs[name])
         self.member_detail_window.exec_()
+        self.member_detail_window = None
         
     def alter_name(self, old_name, new_name):
         if self.process_running:

@@ -67,6 +67,7 @@ class Backend():
         self.si.connect_signal("requestRecordMenu", self.get_record_menu, False)
         self.si.connect_signal("deleteRecord", self.delete_record, True)
         self.si.connect_signal("alterName", self.alter_name, True)
+        self.si.connect_signal("addMemberImg", self.add_member_img, True)
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -542,7 +543,40 @@ class Backend():
         self.si.send_signal("returnedMemberImg")
         self.si.send_data("EOF") # end of data
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
-         
+    
+    def add_member_img(self, name_imgs):
+        name, img_paths = name_imgs
+        if self.fdm is None:
+            self.raise_error("Please select a database.")
+            return
+        if self.database_name is None:
+            self.raise_error("Please select a database.")
+            return
+        if not isinstance(name, str):
+            self.raise_error("Invalid name.")
+            return
+        if name == "":
+            self.raise_error("Invalid name.")
+            return
+        
+        logger.info(f"Add member image: {name}")
+        for img_path in img_paths:
+            if not os.path.exists(img_path):
+                self.raise_error(f"Image not found: {img_path}")
+                return
+            img = cv2.imread(img_path)
+            if img is None:
+                self.raise_error(f"Failed to load image: {img_path}")
+                return
+            id = 0
+            while os.path.exists(os.path.join(config["STORE_DIR"]["DATABASE_ROOT"], self.database_name, name, f"{id}.png")):
+                id+=1
+                
+            cv2.imwrite(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], self.database_name, name, f"{id}.png"), img)
+            
+        # refresh member images
+        self.get_all_member_img()
+        
     def alter_name(self, old_new_name):
         old_name, new_name = old_new_name
         if self.fdm is None:
@@ -566,7 +600,6 @@ class Backend():
         
         # refresh member images
         self.get_all_member_img()
-        
          
     def get_params(self):
         logger.debug("Request parameters")
