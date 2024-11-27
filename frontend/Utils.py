@@ -4,11 +4,11 @@ from PIL import ImageFont, ImageDraw, Image
 import wave
 import winsound
 
-def PutText(img, text, x_y, fontColor = (0, 255, 0), fontScale = 30):
+def PutText(img, text, x_y, fontColor = (0, 255, 0), fontScale = 30, anchor = 'lt'):
     img = Image.fromarray(img)
     draw = ImageDraw.Draw(img)
     fontText = ImageFont.truetype("font/mingliu.ttc", fontScale, encoding="utf-8")
-    draw.text((x_y), text, fontColor, font=fontText)
+    draw.text((x_y), text, fontColor, font=fontText, anchor=anchor, stroke_fill=(0, 0, 0), stroke_width=1)
     frame = np.array(img)
     return frame
 

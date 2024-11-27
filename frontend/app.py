@@ -46,6 +46,8 @@ class SignalTable(QtCore.QObject):
 
     updateScript = QtCore.pyqtSignal(list) # 更新腳本: 腳本
 
+    updateRecordContent = QtCore.pyqtSignal(dict) # 更新影片紀錄內容: [[face_pos] [name] [status]] index by frame_idx
+
     requestProgress = QtCore.pyqtSignal() # 要求更新進度
     updateProgress = QtCore.pyqtSignal(str, int, int) # 任務, 進度, 總進度
 
@@ -88,7 +90,8 @@ class MainWindow(QtWidgets.QWidget):
             "updateScript": signals.updateScript,
             "newMemberImage": signals.newMemberImage,
             "processFinished": signals.ProcessFinished,
-            "processStarted": signals.processStarted
+            "processStarted": signals.processStarted,
+            "updateRecordContent": signals.updateRecordContent
         }
         self.require_data_count = {
             "errorOccor": 1,
@@ -103,7 +106,8 @@ class MainWindow(QtWidgets.QWidget):
             "updateScript": 1,
             "newMemberImage": 2,
             "processFinished": 0,
-            "processStarted": 0
+            "processStarted": 0,
+            "updateRecordContent": 1
         }
         
         # bind signals
@@ -120,6 +124,7 @@ class MainWindow(QtWidgets.QWidget):
         signals.newMemberImage.connect(self.new_database_member_img)
         signals.ProcessFinished.connect(self.process_finished)
         signals.processStarted.connect(self.process_started)
+        signals.updateRecordContent.connect(self.received_record_content)
         
         # set up window title and size
         self.setWindowTitle('操作頁面')
@@ -132,6 +137,7 @@ class MainWindow(QtWidgets.QWidget):
         self.have_video_preview = False
         self.have_runtime_preview = False
         self.member_name_imgs = {}
+        self.record_content = []
         self.database_menu = None
         self.member_detail_window = None
         self.record_menu = None
@@ -543,7 +549,13 @@ class MainWindow(QtWidgets.QWidget):
             return
         self.record_menu.add_record_item(record_name, create_time, video_path, database_name)
         logger.debug(f"Receive record: {record_name}, {create_time}, {video_path}, {database_name}")
-       
+    
+    def received_record_content(self, record_content):
+        # [[face_pos] [name] [status]] index by frame_idx
+        logger.info(f"Receive record content: {record_content}")
+        self.record_content = record_content
+        self.video_preview.set_record_content(record_content)
+    
     def open_error_dialog(self, message):
         logger.error(f"Error occur: {message}")
         if not isinstance(message, str) or message is None:

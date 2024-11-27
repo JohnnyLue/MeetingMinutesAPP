@@ -9,6 +9,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 import threading
 import time
 
+from Utils import *
+
 logger = logging.getLogger()
 
 def cv2_to_pixmap(cv2_img):
@@ -99,6 +101,7 @@ class VideoPlayer(QtWidgets.QLabel):
         self.cap = None
         self.audio = None
         self.play_thread = None
+        self.record_content = None
         self.lock_read = True
         self.total_time = 0
         self.cur_time = 0
@@ -125,12 +128,18 @@ class VideoPlayer(QtWidgets.QLabel):
 fps:{int(self.cap.get(cv2.CAP_PROP_FPS))}
 frame count:{int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))}
 video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}''')
+
         self.total_time = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
+        self.video_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.video_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         def wait_for_audio_load():
             time.sleep(3)
             self.lock_read = False
         threading.Thread(target=wait_for_audio_load).start()
 
+    def set_record_content(self, record_content):
+        self.record_content = record_content
+        
     def close(self):
         self.lock_read = True
         self.quit_loop = True
@@ -318,6 +327,20 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
                         logger.debug('End of video')
                         self.is_paused = True
                         continue
+                    if self.record_content is not None:
+                        content = self.record_content[str(int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)))]
+                        if content is not None:
+                            bboxes = content['bbox']
+                            names = content['names']
+                            statuses = content['statuses']
+                            assert len(bboxes) == len(names) == len(statuses)
+                            for i in range(len(bboxes)):
+                                bbox = bboxes[i]
+                                name = names[i]
+                                status = statuses[i]
+                                cv2.rectangle(frame, (int(bbox[0]*self.video_width), int(bbox[1]*self.video_height)), (int(bbox[2]*self.video_width), int(bbox[3]*self.video_height)), (0, 255, 0) if status else (255, 0, 0), 4)
+                                frame = PutText(frame, name, (bbox[0]*self.video_width, bbox[1]*self.video_height-10), fontColor=(0, 255, 0), fontScale=40, anchor='ls')
+                        
                     pFrame = cv2_to_pixmap(frame)
                     audio_time = self.audio.get_pts() * 1000  # Get audio time in milliseconds, often crush program
                     cap_time = self.cap.get(cv2.CAP_PROP_POS_MSEC)

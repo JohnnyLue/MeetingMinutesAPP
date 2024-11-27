@@ -387,6 +387,16 @@ class Backend():
         self.get_params()
         self.get_all_member_img()
         self.get_script()
+        self.get_record_content()
+        
+    def get_record_content(self):
+        if self.record is None:
+            self.raise_error("Please select a record.")
+            return
+        logger.debug("Get record content")
+        self.si.send_signal("updateRecordContent")
+        self.si.send_data(self.record.get_data())
+        logger.debug(self.record.get_data())
         
     def get_script(self):
         if self.record is None:
