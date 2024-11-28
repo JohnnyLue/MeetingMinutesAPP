@@ -72,6 +72,7 @@ signals = SignalTable()
 class MainWindow(QtWidgets.QWidget):
     def __init__(self, host = 'localhost', port = 8080, buffer_size = 1024):
         super().__init__()
+        self.setGeometry(100, 200, 800, 600)
         # create socket interface instance
         self.si = SocketInterface(host, port, buffer_size)
         self.si.imClient()

@@ -492,8 +492,8 @@ class ParamPanel(QtWidgets.QScrollArea):
         #    self.vertical_layout.addWidget(widget)
         
         
-        self.scroll_widget.resize(QtCore.QSize(self.size().width()-25, len(self.param_widgets)*40))
-        logger.debug(f'new size: {(self.size().width()-25, len(self.param_widgets)*40)}')
+        self.scroll_widget.resize(QtCore.QSize(self.size().width()-25, len(self.param_widgets)*45))
+        logger.debug(f'new size: {(self.size().width()-25, len(self.param_widgets)*45)}')
         
     def add_param_widget_custom_value(self, name, default_value):
         '''
@@ -1118,7 +1118,7 @@ class RecordMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("選擇紀錄檔")
-        self.setFixedSize(550, 500)
+        self.setFixedSize(850, 500)
         self.ui()
         self.update()
         self.record_widgets = {}
@@ -1155,7 +1155,7 @@ class RecordMenu(QtWidgets.QDialog):
         self.update()
         
     def update(self):
-        self.record_scroll_widget.resize(QtCore.QSize(500, self.record_vbox_layout.count()*200))
+        self.record_scroll_widget.resize(QtCore.QSize(800, self.record_vbox_layout.count()*250))
         
     def select_record(self, record_name):
         self.result = record_name
@@ -1191,7 +1191,7 @@ class RecordMenuItem(QtWidgets.QWidget):
         
         info_layout = QtWidgets.QHBoxLayout()
         info_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
-        name_label = QtWidgets.QLabel(f'{self.record_name}', self)
+        name_label = QtWidgets.QLabel(f'紀錄名: {self.record_name}\t', self)
         name_label.setFont(MyFont())
         create_time_label = QtWidgets.QLabel(f'建立時間: {self.time_format(self.create_time)}', self)
         create_time_label.setFont(MyFont())
@@ -1202,12 +1202,13 @@ class RecordMenuItem(QtWidgets.QWidget):
         info_layout2 = QtWidgets.QVBoxLayout()
         info_layout2.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         
-        #video_path_label = QtWidgets.QLabel(f'檔案路徑: {self.video_path}', self)
-        #video_path_label.setWordWrap(True)
-        #video_path_label.setFont(MyFont())
+        video_path_label = QtWidgets.QLabel(f'檔案路徑: {self.video_path}', self)
+        video_path_label.setWordWrap(True)
+        video_path_label.setFont(MyFont())
         database_name_label = QtWidgets.QLabel(f'資料庫: {self.database_name}', self)
         database_name_label.setWordWrap(True)
         database_name_label.setFont(MyFont())
+        info_layout2.addWidget(video_path_label)
         info_layout2.addWidget(database_name_label)
         layout.addLayout(info_layout2)
         
