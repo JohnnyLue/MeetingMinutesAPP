@@ -97,25 +97,21 @@ class FaceRecognizer(FaceAnalysis):
             face_image = self._crop_face_image(image, face)
             if face_image.shape[0] < LEAST_IMG_SIZE or face_image.shape[1] < LEAST_IMG_SIZE: # make sure the quality of picture to add to database
                 create_new_face = False
-            if self.get(face_image) == []:
+            face_from_face_image = self.get(face_image)
+            if len(face_from_face_image) == 1:
+                if face_from_face_image[0].det_score < GOOD_FACE_QUALITY:
+                    create_new_face = False
+            else:
                 create_new_face = False
             
-        if len(face_emb_dict) == 0:
+        pred_name_score = self._search_similar(face.normed_embedding, face_emb_dict)
+        if pred_name_score is None:
             if create_new_face:
-                if self.get(face_image) == []:
-                    return None, False
-                
                 logger.info('No face in database, creating new face...')
                 new_name = fdm.add_new_face(face_image, embedding = face.normed_embedding)
                 return new_name, True
             else:
-                logger.debug('No face in database, and not creating new face.')
                 return None, False
-            
-        pred_name_score = self._search_similar(face.normed_embedding, face_emb_dict)
-        if pred_name_score is None:
-            logger.debug('No similar face found.')
-            return None, False
         
         if pred_name_score[1] < search_threshold and create_new_face:
             if pred_name_score[1] < new_face_threshold: # create new face in database

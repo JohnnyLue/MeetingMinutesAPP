@@ -7,10 +7,8 @@ import logging
 
 logger = logging.getLogger()
 
-from FaceRecognizer import FaceRecognizer
-
 class FaceDatabaseManager:
-    def __init__(self, root, face_recognizer: FaceRecognizer = None, new_member_prefix = 'new_member_'):
+    def __init__(self, root, face_recognizer = None, new_member_prefix = 'new_member_'):
         self.database_root = root
         self.face_recognizer = face_recognizer
         if face_recognizer is not None:
@@ -30,7 +28,7 @@ class FaceDatabaseManager:
             logger.warning('FaceDatabaseManager initialized without FaceRecognizer')
         logger.info('FaceDatabaseManager initialized')
         
-    def set_face_recognizer(self, face_recognizer: FaceRecognizer):
+    def set_face_recognizer(self, face_recognizer):
         self.face_recognizer = face_recognizer
         self.have_face_recognizer = True
         logger.info('set FaceRecognizer')

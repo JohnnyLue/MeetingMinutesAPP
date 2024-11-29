@@ -1,41 +1,38 @@
 import cv2
 import time
+import logging
 
-from FaceDatabaseManager import FaceDatabaseManager
-from FaceRecognizer import FaceRecognizer
-from FaceAnalyzer import FaceAnalyzer
-from ScriptManager import ScriptManager
-from VideoManager import VideoManager
+from backend.FaceDatabaseManager import FaceDatabaseManager
+from backend.FaceRecognizer import FaceRecognizer
+from backend.FaceAnalyzer import FaceAnalyzer
+from backend.ScriptManager import ScriptManager
+from backend.VideoManager import VideoManager
 from Utils import *
 
 FPS = '--'
 
+logger = logging.getLogger()
+logger.handlers.clear()
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+	'[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
+	'%H:%M:%S')
+streamLogger = logging.StreamHandler()
+streamLogger.setLevel(logging.DEBUG)
+streamLogger.setFormatter(formatter)
+logger.addHandler(streamLogger)
+
 if __name__ == '__main__':
-    import threading
-    
     init_time = time.monotonic()
     fr = FaceRecognizer(det_size=(480, 480)) # 偵測不到人臉可以改看看
-    fdm = FaceDatabaseManager('database', fr, new_member_prefix='成員_')
+    fdm = FaceDatabaseManager('backend\database_root\Database_1', fr, new_member_prefix='成員_')
     fa = FaceAnalyzer()
-    vm = VideoManager(video_path=r'meetingVideo\bianlun.mp4')
+    vm = VideoManager(video_path=r'frontend\meetingVideo\Clip - bianlun_mp4-2024-11-14-19-55-00-970.mp4')
     sm = ScriptManager()
     init_time = time.monotonic() - init_time
     print(f'init time: {init_time} s')
     
-    
-    # 載入字幕
-    sm.load_script_file('test_script.txt')
-    
-    # 生成字幕
-    def ScriptProcess():
-        sm.transcribe(vm.extracted_audio_path)
-        sm.save_script_file('test_script.txt')
-    script_time = time.monotonic()
-    #ScriptProcess()
-    script_time = time.monotonic() - script_time
-    print(f'script time: {script_time} s')
-
-    #fdm.generate_embeddings(True) # 重新生成臉部特徵
+    fdm.generate_database_embeddings() # 重新生成臉部特徵
     process_time = time.monotonic() # 計算總處理時間
     start_time = time.monotonic() # 算fps用的
     counter = 0 # 算fps用的
@@ -58,7 +55,7 @@ if __name__ == '__main__':
         name_lmks = []
         for face in faces:
             # 找名字
-            name = fr.get_name(frame, face, fdm, create_new_face=True)
+            name = fr.get_name(frame, face, fdm, create_new_face=False)
             # 臉部標記
             lmk = fr.get_landmark(face)
             if name:
@@ -92,14 +89,6 @@ if __name__ == '__main__':
         get_and_draw_talking_info_time = time.monotonic() - get_and_draw_talking_info_time
         print(f'get and draw talking info time: {get_and_draw_talking_info_time}s')
         
-        # 字幕 中文需用pillow畫
-        draw_script_time = time.monotonic()
-        script = sm.get_script_by_time(vm.get_time())
-        if script == None:
-            script = ''
-        frame = PutText(frame, script, (10, 50))
-        draw_script_time = time.monotonic() - draw_script_time
-        print(f'draw script time: {draw_script_time}s')
         
         # FPS
         counter += 1

@@ -76,15 +76,13 @@ class Backend():
         
         self.running = False
         self.database_name = None
-        self.transcribe_thread = None
         self.run_thread = None
         
         self.cur_process = ""
         self.cur_progress = 0
         self.total_progress = 100
         self.update_progress_lock = False
-        
-        
+                
         def recv_loop():
             while True:
                 type, data = self.si.receive()
@@ -102,7 +100,6 @@ class Backend():
     
     def run(self, test):
         if self.running:
-            self.raise_error("Process is already running.")
             return
         
         self.si.send_signal("processStarted")
@@ -155,7 +152,7 @@ class Backend():
             
             self.fdm.set_face_recognizer(self.fr)
             self.fdm.set_new_member_prefix(self.params['new_member_prefix'])
-            self.fdm.load_data()
+            self.fdm.load_data(generate_all=True)
             self.cur_progress+=1
             self.update_progress()
             
@@ -191,7 +188,6 @@ class Backend():
             
             logger.debug("Start transcribing")
             self.sm.transcribe(self.vm.get_video_path())
-            #self.transcribe_thread = threading.Thread(target=self.sm.transcribe, args=(self.vm.get_video_path(),))
         
         def main_run(test):
             start_time = time.time()
@@ -259,7 +255,7 @@ class Backend():
                 if need_to_get_name or nochange_counter >= 150:
                     nochange_counter = 0
                     for i in range(len(face_boxes)):
-                        name, is_new = self.fr.get_name(frame, face_boxes[i][0], self.fdm, create_new_face=False if test else True)
+                        name, is_new = self.fr.get_name(frame, face_boxes[i][0], self.fdm, create_new_face=True)
                         if name is None:
                             continue
                         if is_new:
@@ -299,16 +295,13 @@ class Backend():
                     for i in range(len(valid_faces)):
                         x1, y1, x2, y2 = valid_bboxes[i]
                         cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0) if statuses[i] else (225, 0, 0), 5)
-                        frame = PutText(frame, names[i]+f"__{i}", (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
+                        frame = PutText(frame, names[i], (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
                         #frame = PutText(frame, self.sm.get_script_by_time(time_s), (0, 0), fontScale=50)
                 else:
                     for i in range(len(valid_faces)):
                         x1, y1, x2, y2 = valid_bboxes[i]
                         frame = PutText(frame, "Not Found" if not names[i] else names[i], (int(x1*self.vm.width), int(y1*self.vm.height)-20), fontScale=50)
                         cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0) if statuses[i] else (225, 0, 0), 5)
-                    for bbox in bboxes:
-                        x1, y1, x2, y2 = bbox
-                        cv2.rectangle(frame, (int(x1*self.vm.width), int(y1*self.vm.height)), (int(x2*self.vm.width), int(y2*self.vm.height)), (0, 255, 0), 5)
                 
                 self.si.send_signal("updateRuntimeImg")
                 self.si.send_image(cv2.resize(frame, (640, 360))) # 640*360
@@ -328,7 +321,6 @@ class Backend():
             self.si.send_signal("processFinished")
             logger.info(f"Process finished/terminated in {time.time() - start_time} seconds")
             
-        
         self.run_thread = threading.Thread(target=main_run, args=(test,))
         self.run_thread.start()
         
@@ -689,15 +681,7 @@ class Backend():
     def terminateProcess(self):
         self.running = False
         
-        self.cur_process = "Terminating process..."
-        self.cur_progress = 0
-        self.total_progress = 0
-        self.update_progress()
-        self.update_progress_lock = True
-        
-        if self.transcribe_thread is not None:
-            self.transcribe_thread.join()
-            self.transcribe_thread = None
+        time.sleep(1)
         if self.run_thread is not None:
             self.run_thread.join()
             self.run_thread = None
@@ -709,16 +693,14 @@ class Backend():
         self.update_progress()
         
     def save_record(self):
-        if self.transcribe_thread is not None:
-            if self.transcribe_thread.is_alive():
-                self.cur_process = "Waiting for transcribing..."
-                self.cur_progress = 0
-                self.total_progress = 0
-                self.update_progress()
-                self.transcribe_thread.join()
-            
         if self.record is None:
             logger.warning("No record to save")
+            return
+        
+        script_result = self.sm.get_result()
+        if script_result is None:
+            self.record.set_script(script_result)
+            self.raise_error("沒有正常完成轉錄, 取消操作")
             return
         
         self.record.set_script(self.sm.get_result())

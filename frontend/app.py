@@ -445,7 +445,6 @@ class MainWindow(QtWidgets.QWidget):
             if self.have_runtime_preview:
                 logger.debug("already have runtime preview")
                 return
-            
             if self.have_video_preview:
                 logger.debug("remove video preview")
                 self.video_preview.close()
@@ -453,6 +452,7 @@ class MainWindow(QtWidgets.QWidget):
                 self.video_area.takeAt(1).widget().deleteLater()
                 self.video_area.takeAt(1).widget().deleteLater()
                 self.have_video_preview = False
+
             self.runtime_preview = QtWidgets.QLabel()
             self.runtime_preview.setFixedSize(640, 360)
             self.video_area.addWidget(self.runtime_preview)
@@ -464,27 +464,23 @@ class MainWindow(QtWidgets.QWidget):
             logger.warning("File not found")
             self.open_error_dialog("File not found")
             return
-        
+       
         if self.have_video_preview:
             logger.debug("Reset video preview")
             self.video_preview.close()
             self.video_control.close()
             self.video_area.takeAt(1).widget().deleteLater()
             self.video_area.takeAt(1).widget().deleteLater()
-            
-            self.video_preview = VideoPlayer(self, file_path)
-            self.video_area.addWidget(self.video_preview)
-            
-            self.video_control = VideoControlPanel(self, self.video_preview)
-            self.video_area.addWidget(self.video_control)
-        else:
+        else: # have runtime or no preview
             self.video_area.takeAt(1).widget().deleteLater()
-            self.video_preview = VideoPlayer(self, file_path)
-            self.video_area.addWidget(self.video_preview)
-            self.have_video_preview = True
-            
-            self.video_control = VideoControlPanel(self, self.video_preview)
-            self.video_area.addWidget(self.video_control)
+            self.have_runtime_preview = False
+
+        self.video_preview = VideoPlayer(self, file_path)
+        self.video_area.addWidget(self.video_preview)
+        self.have_video_preview = True
+        
+        self.video_control = VideoControlPanel(self, self.video_preview)
+        self.video_area.addWidget(self.video_control)
         self.subtitle_area.connect_video_player(self.video_preview)
         self.video_preview.play()
         
