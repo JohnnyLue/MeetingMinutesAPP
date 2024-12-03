@@ -39,7 +39,7 @@ class FaceRecognizer(FaceAnalysis):
         embeddings = np.stack([faces[0].normed_embedding], axis=0) # turn into Ndarray
         logger.debug(f'Generated embedding shape: {embeddings.shape}')
         return embeddings
-    
+
     def generate_embeddings_from_folder(self, image_folder):
         embeddings = []
         files = glob.glob(f'{image_folder}\*.png')
@@ -82,7 +82,7 @@ class FaceRecognizer(FaceAnalysis):
         face: Face to get name
         threshold: float
         fdm: FaceDatabaseManager
-
+        
         output:
         pred_name_score: [name, score] of predited result
         None if face is not known and creating_new_face is set to false
@@ -127,18 +127,18 @@ class FaceRecognizer(FaceAnalysis):
             return pred_name_score[0], False
         
         return None, False
-    
+
     def get_landmark(self, face):
         if len(face.landmark_2d_106) == 106:
             return face.landmark_2d_106
         return None
-        
+
     def _search_similar(self, emb_to_search, name_embedding_dict):
         '''
         return name with highest similarity score
         input:
         emb_to_search: Face.normed_embedding
-
+        
         output:
         name_score: [name, score] of founded result
         None if not found
@@ -158,7 +158,7 @@ class FaceRecognizer(FaceAnalysis):
             return None
         
         return name_scores[0]
-    
+
     def _crop_face_image(self, image, face):
         box = face.bbox.astype(int)
         img_hei = image.shape[0]
@@ -168,4 +168,3 @@ class FaceRecognizer(FaceAnalysis):
         img = image[int(max(box[1] * (1.0 + pedding) - box[3] * pedding, 0)):int(min(box[3] * (1.0 + pedding) - box[1] * pedding, img_hei - 1)),
                     int(max(box[0] * (1.0 + pedding) - box[2] * pedding, 0)):int(min(box[2] * (1.0 + pedding) - box[0] * pedding, img_wid - 1))]
         return img
-    

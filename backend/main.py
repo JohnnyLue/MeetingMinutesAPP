@@ -97,7 +97,7 @@ class Backend():
                     break
                     
         threading.Thread(target=recv_loop).start()
-    
+
     def run(self, test):
         if self.running:
             return
@@ -224,7 +224,7 @@ class Backend():
                     logger.debug(f"{bbox}")
                     bbox[0] /= self.vm.width
                     bbox[1] /= self.vm.height
-
+                    
                     bbox[2] /= self.vm.width
                     bbox[3] /= self.vm.height
                     bboxes.append(bbox)
@@ -249,7 +249,7 @@ class Backend():
                             if dis > 0.1:
                                 break
                     need_to_get_name = False
-
+                
                 names = []
                 valid_faces_bboxes = []
                 if need_to_get_name or nochange_counter >= 150:
@@ -323,7 +323,7 @@ class Backend():
             
         self.run_thread = threading.Thread(target=main_run, args=(test,))
         self.run_thread.start()
-        
+
     def get_record_menu(self):
         files = glob.glob(os.path.join(config['STORE_DIR']['RECORD'], '*.json'))
         logger.debug(files)
@@ -346,10 +346,10 @@ class Backend():
             self.si.send_data(info['create_time'])
             self.si.send_data(info['video_path'])
             self.si.send_data(info['database_name'])
-        
+
     def create_empty_record(self):
         self.record = Record()
-        
+
     def delete_record(self, record_name):
         if not isinstance(record_name, str):
             self.raise_error("Invalid record name.")
@@ -362,7 +362,7 @@ class Backend():
             self.get_record_menu()
         else:
             self.raise_error("Record not found.")
-    
+
     def set_record_file(self, record_name):
         self.record = Record()
         logger.info(f"Set record file: {record_name}")
@@ -380,7 +380,7 @@ class Backend():
         self.get_all_member_img()
         self.get_script()
         self.get_record_content()
-        
+
     def get_record_content(self):
         if self.record is None:
             self.raise_error("Please select a record.")
@@ -389,7 +389,7 @@ class Backend():
         self.si.send_signal("updateRecordContent")
         self.si.send_data(self.record.get_data())
         logger.debug(self.record.get_data())
-        
+
     def get_script(self):
         if self.record is None:
             self.raise_error("Please select a record.")
@@ -400,7 +400,7 @@ class Backend():
             return
         self.si.send_signal("updateScript")
         self.si.send_data(self.record.get_script())
-        
+
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")
         self.cur_process = f"Selected video: \"{os.path.basename(video_path)}\""
@@ -418,7 +418,7 @@ class Backend():
             self.cur_progress = 0
             self.total_progress = 0
             self.update_progress()
-     
+
     def set_database_path(self, database_name):
         self.database_name = None
         if not isinstance(database_name, str):
@@ -432,7 +432,7 @@ class Backend():
         self.fdm = FaceDatabaseManager(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], database_name))
         self.database_name = database_name
         logger.info(f"Set database path:\"{database_name}\"")
-    
+
     def create_database(self, database_name):
         if not isinstance(database_name, str):
             self.raise_error("Invalid database name.")
@@ -458,7 +458,7 @@ class Backend():
         self.si.send_data('EOF')
         self.si.send_data('')
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
-    
+
     def delete_database(self, database_name):
         if not isinstance(database_name, str):
             return
@@ -474,7 +474,7 @@ class Backend():
                 self.raise_error("Failed to delete database.")
         else:
             self.raise_error("Database not found.")
-    
+
     def get_database_menu(self):
         databasees_list = glob.glob(os.path.join(config['STORE_DIR']['DATABASE_ROOT'], '*'))
         logger.debug(databasees_list)
@@ -513,7 +513,7 @@ class Backend():
         self.si.send_data('EOF')
         self.si.send_data('')
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
-        
+
     def get_all_member_img(self):
         if self.fdm is None:
             self.raise_error("Please select a database.")
@@ -545,7 +545,7 @@ class Backend():
         self.si.send_signal("returnedMemberImg")
         self.si.send_data("EOF") # end of data
         self.si.send_image(np.zeros((1, 1, 3), dtype=np.uint8))
-    
+
     def add_member_img(self, name_imgs):
         name, img_paths = name_imgs
         if self.fdm is None:
@@ -578,7 +578,7 @@ class Backend():
             
         # refresh member images
         self.get_all_member_img()
-        
+
     def alter_name(self, old_new_name):
         old_name, new_name = old_new_name
         if self.fdm is None:
@@ -602,7 +602,7 @@ class Backend():
         
         # refresh member images
         self.get_all_member_img()
-         
+
     def get_params(self):
         logger.debug("Request parameters")
         
@@ -640,7 +640,7 @@ class Backend():
         self.si.send_signal("updateParam")
         self.si.send_data("EOF")
         self.si.send_data([""])
-    
+
     def update_progress(self):
         '''
         return current processing section and progress/total using tuple
@@ -652,7 +652,7 @@ class Backend():
         self.si.send_data(self.cur_process)
         self.si.send_data(self.cur_progress)
         self.si.send_data(self.total_progress)        
-    
+
     def set_param(self, name_value):
         param_name, value = name_value
         inv_aliases = {v: k for k, v in param_aliases.items()}
@@ -668,7 +668,7 @@ class Backend():
             value = inv_aliases[value] if value in inv_aliases else value
             self.params[name] = value
             logger.info(f"Set parameter: {name} = {value}")
-        
+
     def raise_error(self, error_message):
         self.si.send_signal("errorOccor")
         self.si.send_data(error_message)
@@ -677,7 +677,7 @@ class Backend():
         self.cur_progress = 0
         self.total_progress = 0
         self.update_progress()
-        
+
     def terminateProcess(self):
         self.running = False
         
@@ -691,7 +691,7 @@ class Backend():
         self.cur_progress = 0
         self.total_progress = 0
         self.update_progress()
-        
+
     def save_record(self):
         if self.record is None:
             logger.warning("No record to save")

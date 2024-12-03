@@ -9,10 +9,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 from FrontEndWidgets import *
 from SocketInterface import SocketInterface
 
-
 #################################################################################
 # Set up logger
-
 logger = logging.getLogger()
 logger.handlers.clear()
 logger.setLevel(logging.DEBUG)
@@ -27,7 +25,6 @@ streamLogger.setLevel(logging.DEBUG)
 streamLogger.setFormatter(formatter)
 logger.addHandler(fileLogger)
 logger.addHandler(streamLogger)
-
 #################################################################################
 # Define signals
 class SignalTable(QtCore.QObject):
@@ -35,22 +32,22 @@ class SignalTable(QtCore.QObject):
     requestAllMemberImg = QtCore.pyqtSignal() # 要求全部照片
     returnedMemberImg = QtCore.pyqtSignal(str, QtGui.QPixmap) # 回傳名字, 照片
     newMemberImage = QtCore.pyqtSignal(str, QtGui.QPixmap) # 新增照片: 名字, 照片
-
+    
     selectedVideo = QtCore.pyqtSignal(str) # 選擇影片: 檔案位置
     selectedDatabase = QtCore.pyqtSignal(str) # 選擇資料庫: 
     returnedDatabaseMenu = QtCore.pyqtSignal(str, str, QtGui.QPixmap) # 回傳資料庫: 資料庫名, 人員名, 照片
-
+    
     requestParams = QtCore.pyqtSignal() # 要求參數(全部)
     updateParam = QtCore.pyqtSignal(str, list) # 更新顯示參數: 參數名, 值 (可能是list)
     alterParam = QtCore.pyqtSignal(str, str) # 修改參數: 參數名, 值
-
+    
     updateScript = QtCore.pyqtSignal(list) # 更新腳本: 腳本
-
+    
     updateRecordContent = QtCore.pyqtSignal(dict) # 更新影片紀錄內容: [[face_pos] [name] [status]] index by frame_idx
-
+    
     requestProgress = QtCore.pyqtSignal() # 要求更新進度
     updateProgress = QtCore.pyqtSignal(str, int, int) # 任務, 進度, 總進度
-
+    
     testRun = QtCore.pyqtSignal() # 要求測試執行
     startProcess = QtCore.pyqtSignal() # 要求開始處理
     terminateProcess = QtCore.pyqtSignal() # 要求終止處理
@@ -59,7 +56,7 @@ class SignalTable(QtCore.QObject):
     
     recordOverwrite = QtCore.pyqtSignal() # 要求確認是否覆蓋紀錄
     recordOverwriteConfirmed = QtCore.pyqtSignal() # 確認覆蓋紀錄
-
+    
     errorOccor = QtCore.pyqtSignal(str) # 錯誤訊息
     ProcessFinished = QtCore.pyqtSignal() # 任務完成
     processStarted = QtCore.pyqtSignal() # 任務開始
@@ -68,8 +65,8 @@ class SignalTable(QtCore.QObject):
 
 signals = SignalTable()
 ####################################################################################
-                    
 class MainWindow(QtWidgets.QWidget):
+
     def __init__(self, host = 'localhost', port = 8080, buffer_size = 1024):
         super().__init__()
         self.setGeometry(100, 200, 800, 600)
@@ -146,11 +143,11 @@ class MainWindow(QtWidgets.QWidget):
         
         # start receiving loop
         threading.Thread(target=self.receiving_loop).start()
-
+        
         # send signals for initialization
         self.si.send_signal("requestParams")
         self.si.send_signal("requestProgress")
-        
+
     def receiving_loop(self):
         if not self.si.inited:
             logger.warning("socket connection not created")
@@ -182,10 +179,10 @@ class MainWindow(QtWidgets.QWidget):
                     else:
                         data.append(d) # receive data
                 self.signals_pairs[signal_name].emit(*data) # emit qt signal with data
-        
+
     def ui(self):
         layout = QtWidgets.QHBoxLayout(self)
-
+        
         video_and_progress_layout = QtWidgets.QVBoxLayout()
         # Video Upload Section
         self.video_area = QtWidgets.QVBoxLayout()
@@ -216,7 +213,7 @@ class MainWindow(QtWidgets.QWidget):
         # Subtitle Display Section
         self.subtitle_area = SubtitleArea(self)
         layout.addWidget(self.subtitle_area)
-
+        
         # database control and parameter section
         db_and_parm_layout = QtWidgets.QVBoxLayout()
         db_and_parm_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -246,7 +243,7 @@ class MainWindow(QtWidgets.QWidget):
         db_layout.addWidget(self.merge_button)
         db_and_parm_layout.addLayout(db_layout)
         db_and_parm_layout.addSpacing(30)
-
+        
         # Parameter Adjustment Section
         param_layout = QtWidgets.QVBoxLayout()
         param_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
@@ -260,7 +257,7 @@ class MainWindow(QtWidgets.QWidget):
         db_and_parm_layout.addLayout(param_layout)
         
         layout.addLayout(db_and_parm_layout)
-
+        
         # Test Execution Section
         execution_layout = QtWidgets.QVBoxLayout()
         execution_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -281,10 +278,10 @@ class MainWindow(QtWidgets.QWidget):
         execution_layout.addSpacing(20)
         execution_layout.addWidget(self.terminate_button)
         layout.addLayout(execution_layout)
-    
+
     def resizeEvent(self, event):
         self.update_database_widget()
-    
+
     def update_database_member_img(self, name, pixmap):
         if name == "EOF": # all images are sent
             self.update_database_widget()
@@ -306,7 +303,7 @@ class MainWindow(QtWidgets.QWidget):
         else:
             self.member_name_imgs[name].append(pixmap)
         logger.debug(f'Receive member "{name}"\'s img')
-        
+
     def new_database_member_img(self, name, pixmap):
         if name not in self.member_name_imgs:
             if "" in self.member_name_imgs:
@@ -317,7 +314,7 @@ class MainWindow(QtWidgets.QWidget):
             self.member_name_imgs[name].append(pixmap)
         logger.info(f"New member {name} added")
         self.update_database_widget()
-        
+
     def update_database_widget(self):
         cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
         for _ in range(self.db_grid_layout.count()):
@@ -345,7 +342,7 @@ class MainWindow(QtWidgets.QWidget):
         else:
             self.db_scroll_widget.resize(QtCore.QSize(self.db_scroll_area.size().width()-25, hei))
             logger.debug(f"Resize db_scroll_widget to {(self.db_scroll_area.size().width()-25, hei)}")
-            
+
     def pop_member_detail_window(self, name):
         if self.member_detail_window is not None:
             self.member_detail_window.close()
@@ -356,14 +353,14 @@ class MainWindow(QtWidgets.QWidget):
         self.member_detail_window.set_imgs(self.member_name_imgs[name])
         self.member_detail_window.exec_()
         self.member_detail_window = None
-        
+
     def alter_name(self, old_name, new_name):
         if self.process_running:
             logger.warning("Process running, ignore request")
             return
         self.si.send_signal("alterName")
         self.si.send_data((old_name, new_name))
-        
+
     def request_database_menu(self):
         if self.process_running:
             logger.warning("Process running, ignore request")
@@ -384,7 +381,7 @@ class MainWindow(QtWidgets.QWidget):
             self.si.send_data(self.database_menu.result)
             self.si.send_signal("requestAllMemberImg")
             self.database_menu = None
-    
+
     def recieve_database_menu(self, database_name, member_name, pic):
         if self.database_menu is None:
             logger.warning("Database menu page is not opened")
@@ -393,14 +390,14 @@ class MainWindow(QtWidgets.QWidget):
             self.database_menu.update()
             return
         self.database_menu.addPreview_img(database_name, member_name, pic)
-    
+
     def alter_param(self, name, value):
         if self.process_running:
             logger.warning("Process running, ignore request")
             return
         self.si.send_signal("alterParam")
         self.si.send_data((name, value))
-    
+
     def update_progress_bar(self, task, progress, total):
         logger.debug(f"update progress bar: {task}, {progress}, {total}")
         if self.progress_bar is None or self.progress_text is None:
@@ -419,7 +416,7 @@ class MainWindow(QtWidgets.QWidget):
         
         self.progress_text.setText(f"{task} ({str(progress)}/{str(total)})")
         self.progress_bar.setValue(int((progress/total)*100))
-        
+
     def received_param_value(self, name, values):
         #name, values = name_values
         logger.debug(f"Receive param: {name}, values: {values}")
@@ -452,7 +449,7 @@ class MainWindow(QtWidgets.QWidget):
                 self.video_area.takeAt(1).widget().deleteLater()
                 self.video_area.takeAt(1).widget().deleteLater()
                 self.have_video_preview = False
-
+        
             self.runtime_preview = QtWidgets.QLabel()
             self.runtime_preview.setFixedSize(640, 360)
             self.video_area.addWidget(self.runtime_preview)
@@ -474,7 +471,7 @@ class MainWindow(QtWidgets.QWidget):
         else: # have runtime or no preview
             self.video_area.takeAt(1).widget().deleteLater()
             self.have_runtime_preview = False
-
+        
         self.video_preview = VideoPlayer(self, file_path)
         self.video_area.addWidget(self.video_preview)
         self.have_video_preview = True
@@ -483,7 +480,7 @@ class MainWindow(QtWidgets.QWidget):
         self.video_area.addWidget(self.video_control)
         self.subtitle_area.connect_video_player(self.video_preview)
         self.video_preview.play()
-        
+
     def update_runtime_img(self, pixmap):
         if pixmap is None:
             logger.warning("Receive None pixmap")
@@ -493,14 +490,14 @@ class MainWindow(QtWidgets.QWidget):
             self.switch_video_preview("") # switch to runtime image mode
             
         self.runtime_preview.setPixmap(pixmap)
-        
+
     def recvived_script(self, script):
         if not isinstance(script, list) or script is None:
             logger.warning("Invalid script")
             return
         
         self.subtitle_area.set_subtitle_data(script)
-        
+
     def open_select_video_dialog(self):
         if self.process_running:
             logger.warning("Process running, ignore request")
@@ -514,7 +511,7 @@ class MainWindow(QtWidgets.QWidget):
             if file_path:
                 self.si.send_signal("selectedVideo")
                 self.si.send_data(file_path)
-    
+
     def open_check_overwrite_dialog(self):
         check_dialog = QtWidgets.QMessageBox(self)
         check_dialog.setWindowTitle("確認")
@@ -522,7 +519,7 @@ class MainWindow(QtWidgets.QWidget):
         check_dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
         if check_dialog.exec_() == QtWidgets.QMessageBox.StandardButton.Yes:
             self.si.send_signal("recordOverwriteConfirmed")
-       
+
     def open_select_record_dialog(self):
         if self.process_running:
             logger.warning("Process running, ignore request")
@@ -536,7 +533,7 @@ class MainWindow(QtWidgets.QWidget):
             self.si.send_signal("selectedRecord")
             self.si.send_data(self.record_menu.result)
             self.record_menu = None
-       
+
     def received_record_menu(self, record_name, create_time, video_path, database_name):
         if self.record_menu is None:
             logger.warning("Record menu page is not opened")
@@ -546,13 +543,13 @@ class MainWindow(QtWidgets.QWidget):
             return
         self.record_menu.add_record_item(record_name, create_time, video_path, database_name)
         logger.debug(f"Receive record: {record_name}, {create_time}, {video_path}, {database_name}")
-    
+
     def received_record_content(self, record_content):
         # [[face_pos] [name] [status]] index by frame_idx
         logger.info(f"Receive record content: {record_content}")
         self.record_content = record_content
         self.video_preview.set_record_content(record_content)
-    
+
     def open_error_dialog(self, message):
         logger.error(f"Error occur: {message}")
         if not isinstance(message, str) or message is None:
@@ -560,19 +557,19 @@ class MainWindow(QtWidgets.QWidget):
             return
         error_dialog = ErrorDialog(message)
         error_dialog.exec_()
-        
+
     def terminate_process(self):
         logger.info("Terminate process")
         self.si.send_signal("terminateProcess")
-        
+
     def process_started(self):
         logger.info("Process started")
         self.process_running = True
-        
+
     def process_finished(self):
         logger.info("Process finished")
         self.process_running = False
-        
+
     def closeEvent(self, event):
         logger.info("Close window and terminate process")
         self.si.send_signal("terminateProcess")
@@ -580,7 +577,7 @@ class MainWindow(QtWidgets.QWidget):
         if self.have_video_preview:
             self.video_preview.close()
         event.accept()
-        
+
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     with open("Darkeum.qss", "r") as f:

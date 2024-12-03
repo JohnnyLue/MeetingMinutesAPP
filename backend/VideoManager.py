@@ -10,26 +10,18 @@ logger = logging.getLogger()
 supported_format = ['mp4']
 
 class VideoManager:
-    def __init__(self, video_path = 0, store_dir = './storedVideo'):
+    def __init__(self, video_path = 0):
         self.is_ready = False
         self.writing = False
         self.tempdir = tempfile.mkdtemp()
-        if not os.path.exists(store_dir):
-            try:
-                os.mkdir(store_dir)
-            except:
-                logger.error('Store dir not exist and cannot create.')
-                return
-                
-        self.store_dir = store_dir
         
         # load video
         if video_path != 0:
             self.load_video(video_path)
-            
+        
         self.cur_frame_idx = 0
         logger.info('VideoManager initialized.')
-        
+
     def load_video(self, video_path):
         self.video_path = 0
         if self.is_ready:
@@ -73,16 +65,16 @@ class VideoManager:
         self.is_ready = True
         
         self.next_frame()
-     
+
     def get_video_path(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
             return None
         return self.video_path
-        
+
     def print_info(self):
         logger.info(f'Name:{self.file_name}, codec:{self.codec}, fps:{self.fps}, height:{self.height}, width:{self.width}')
-    
+
     def next_frame(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
@@ -92,11 +84,11 @@ class VideoManager:
         if not ret or self.frame is None:
             logger.warning('Read frame failed.')
             return None
-
+        
         self.cur_frame_idx += 1
-
+        
         return self.frame
-    
+
     def get_cur_frame_idx(self):
         return self.cur_frame_idx
 
@@ -112,7 +104,7 @@ class VideoManager:
             return None
         
         return self.frame
-        
+
     def forward(self, seconds):
         '''
         input: [float] seconds to forward
@@ -129,7 +121,7 @@ class VideoManager:
         self.frame = self.cap.read()[1]
         self.cur_frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
         logger.debug(f'forward {new_time_ms} ms')
-    
+
     def rewind(self, seconds):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
@@ -144,40 +136,28 @@ class VideoManager:
         self.frame = self.cap.read()[1]
         self.cur_frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
         logger.debug(f'rewind {new_time_ms} ms')
-       
+
     def is_end(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
             return False
         
         return abs(self.cur_frame_idx - self.total_frames) < 10
-     
+
     def get_time(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
             return 0
         
         return round(self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000, 1)
-    
+
     def get_total_frame(self):
         if not self.is_ready:
             logger.warning('Initialization is not done.')
             return 0
         
         return self.total_frames
-    
-    def save_video(self, path = ''):
-        if not self.is_ready:
-            logger.warning('Initialization is not done.')
-            return
-        if path == '':
-            path = self._generate_file_path(self.store_dir)
-        
-        logger.info(f'Saving video to {path}...')
-        p = subprocess.Popen(['ffmpeg', '-y', '-i', self.video_path, '-i', self.extracted_audio_path, path])
-        p.wait()
-        logger.info('Video saved.')
-        
+
     def _generate_file_path(self, dir):
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -190,7 +170,7 @@ class VideoManager:
             i+=1
         logger.debug(f'Generated file path: {fpath}')
         return fpath
-    
+
     def __del__(self):
         if self.is_ready:
             self.cap.release()

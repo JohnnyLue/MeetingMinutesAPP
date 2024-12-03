@@ -62,7 +62,7 @@ class MyFont(QtGui.QFont):
 class FileDropArea(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-
+        
         # 設置區域樣式
         self.setAcceptDrops(True)
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
@@ -72,7 +72,7 @@ class FileDropArea(QtWidgets.QWidget):
         self.label = QtWidgets.QLabel("拖放檔案至此，或點擊選取檔案", self)
         self.label.setFont(MyFont())
         self.label.setAlignment(QtCore.Qt.AlignCenter)
-
+        
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(self.label)
         self.setLayout(layout)
@@ -80,7 +80,7 @@ class FileDropArea(QtWidgets.QWidget):
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-
+    
     def dropEvent(self, event: QtGui.QDropEvent):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         if len(files) > 1:
@@ -88,7 +88,7 @@ class FileDropArea(QtWidgets.QWidget):
             return
         self.parent().si.send_signal("selectedVideo")
         self.parent().si.send_data(files[0])
-
+    
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.LeftButton:
             self.parent().open_select_video_dialog()
@@ -116,7 +116,7 @@ class VideoPlayer(QtWidgets.QLabel):
         
     def update(self, img):
         self.setPixmap(img.scaled(640, 360, QtCore.Qt.AspectRatioMode.KeepAspectRatio))
-
+    
     def load(self, path):
         self.quit_loop = False
         self.lock_read = True
@@ -128,7 +128,7 @@ class VideoPlayer(QtWidgets.QLabel):
 fps:{int(self.cap.get(cv2.CAP_PROP_FPS))}
 frame count:{int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))}
 video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}''')
-
+        
         self.total_time = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
         self.video_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.video_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -136,7 +136,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             time.sleep(3)
             self.lock_read = False
         threading.Thread(target=wait_for_audio_load).start()
-
+    
     def set_record_content(self, record_content):
         self.record_content = record_content
         
@@ -149,7 +149,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.cap = None
         self.audio = None
         logger.debug('Video player closed')
-
+    
     def pause(self):
         if self.quit_loop:
             return
@@ -160,7 +160,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.is_paused = not self.is_paused
         logger.debug(f'pause: {self.is_paused}')
         self.lock_read = False
-
+    
     def forward(self, seconds):
         if self.quit_loop:
             return
@@ -183,7 +183,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
         self.cur_time = new_time
-
+        
         ret, frame = self.cap.read()
         if not ret:
             logger.debug('End of video')
@@ -230,7 +230,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         self.cap.set(cv2.CAP_PROP_POS_MSEC, new_time)
         self.audio.seek(new_time / 1000, relative=False)
         self.cur_time = new_time
-
+        
         ret, frame = self.cap.read()
         if not ret:
             logger.debug('End of video')
@@ -254,7 +254,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         
         logger.debug(f'rewind {seconds} seconds')
         self.lock_read = False
-
+    
     def set_time(self, new_time):
         if self.quit_loop:
             return
@@ -298,7 +298,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         
         logger.debug(f'set time to {new_time} second')
         self.lock_read = False
-
+    
     def get_time(self):
         if self.quit_loop:
             return -1
@@ -376,7 +376,7 @@ class VideoControlPanel(QtWidgets.QWidget):
         self.rewind_button.setFixedWidth(100)
         self.rewind_button.clicked.connect(self.rewind)
         btn_time_layout.addWidget(self.rewind_button)
-
+        
         self.play_button = new_button("播放")
         self.play_button.setFixedWidth(100)
         self.play_button.clicked.connect(self.play)
@@ -539,7 +539,7 @@ class ParamPanel(QtWidgets.QScrollArea):
     def on_change(self, name, new_value):
         logger.info(f"{name} change to {new_value}")
         self.parent().alter_param(name, new_value)
-        
+
 class MemberDetailWindow(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -635,13 +635,13 @@ class MemberDetailWindow(QtWidgets.QDialog):
             return
         self.name = name
         self.member_name.setText(name)
-
+    
     def set_imgs(self, imgs):
         logger.debug(f'"{self.name}" imgs: {len(imgs)}')
         if imgs is None:
             return
         self.member_imgs = imgs
-        
+    
     def recieve_pic(self, pixmap):
         pass
         
@@ -679,7 +679,7 @@ class MemberDetailWindow(QtWidgets.QDialog):
         btn_layout.addWidget(confirm_btn)
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
-
+        
         edit_name_dialog.setLayout(layout)
         edit_name_dialog.exec()
     
@@ -687,7 +687,7 @@ class MemberDetailWindow(QtWidgets.QDialog):
         self.open_select_pic_dialog()
          
         pass
-
+    
     def open_select_pic_dialog(self):
         dialog = QtWidgets.QFileDialog(self, "選擇照片")
         dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFiles)
@@ -701,7 +701,7 @@ class MemberDetailWindow(QtWidgets.QDialog):
         
     def delete_member(self):
         pass
-    
+
 class VideoMenu(QtWidgets.QDialog):
     def __init__(self, root_dir, parent=None):
         super().__init__(parent)
@@ -789,7 +789,7 @@ class VideoMenu(QtWidgets.QDialog):
     def closeEvent(self, event):
         self.result = None
         self.accept()
-    
+
 class DatabaseMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -853,7 +853,7 @@ class DatabaseMenu(QtWidgets.QDialog):
             self.database_preview_items[database_name].update()
         self.member_scroll_widget.resize(QtCore.QSize(600, len(self.database_preview_items)*220))
         logger.debug(f'new size: {(600, len(self.database_preview_items)*250)}')
-
+    
     def create_new_database(self):
         self.open_new_database_dialog()
         
@@ -943,7 +943,7 @@ class DatabaseMenu(QtWidgets.QDialog):
     def closeEvent(self, event):
         self.result = None
         self.accept()
-        
+
 class DatabaseMenuItem(QtWidgets.QWidget):
     def __init__(self, database_name, menu, parent=None):
         super().__init__(parent)
@@ -1016,7 +1016,7 @@ class DatabaseMenuItem(QtWidgets.QWidget):
         if self.preview_img_num < 5:
             self.preview_imgs[self.preview_img_num].setPixmap(pixmap.scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
             self.preview_img_num += 1
-            
+
 class SubtitleArea(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1074,7 +1074,7 @@ class SubtitleArea(QtWidgets.QWidget):
         #    return
         logger.debug(f'click subtitle: {time_s} {subtitle}')
         self.video_player.set_time(time_s)
-            
+
 class SubtitleItem(QtWidgets.QWidget):
     def __init__(self, time_s, time, subtitle, panel, parent=None):
         super().__init__(parent)
@@ -1113,7 +1113,7 @@ class SubtitleItem(QtWidgets.QWidget):
         
     def mousePressEvent(self, event):
         self.panel.subtitle_pressed(self.time_s, self.subtitle)
-            
+
 class RecordMenu(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1182,7 +1182,7 @@ class RecordMenuItem(QtWidgets.QWidget):
         self.menu = menu
         logger.debug(f'create record item: {record_name} {create_time} {video_path} {database_name}')
         self.ui()
-        
+    
     def ui(self):
         frame = QtWidgets.QFrame(self)
         
@@ -1234,13 +1234,13 @@ class RecordMenuItem(QtWidgets.QWidget):
         _layout = QtWidgets.QHBoxLayout(self)
         _layout.addWidget(frame)
         self.setLayout(_layout)
-        
+    
     def delete_record(self):
         self.open_confirm_dialog(self.record_name)
-        
+    
     def confirm_delete_record(self, record_name):
         self.menu.delete_record(record_name)
-        
+    
     def open_confirm_dialog(self, record_name):
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("確認刪除")
@@ -1265,7 +1265,7 @@ class RecordMenuItem(QtWidgets.QWidget):
         layout.addLayout(btn_layout)
         dialog.setLayout(layout)
         dialog.exec()
-        
+    
     def time_format(self, time_str:str):
         # time_str format: "YYYY_MM_DD_HH_MM_SS"
         # after: "YYYY/MM/DD HH:MM:SS"
@@ -1274,7 +1274,6 @@ class RecordMenuItem(QtWidgets.QWidget):
         time_str = time_str.replace('_', ':', 2)
         
         return time_str
-        
+    
     def select_record(self):
         self.menu.select_record(self.record_name)
-

@@ -8,7 +8,7 @@ class FaceAnalyzer:
         self.name_open_value_dict = {}
         self.value_window_size = value_window_size
         logger.info("FaceAnalyzer initialized")
-    
+
     def mouth_open(self, face_lmk):
         # there are three pairs of points in lmk that can decide how much the mouse is open, store them
         left_lip_dis = np.linalg.norm(face_lmk[54] - face_lmk[66])
@@ -60,7 +60,7 @@ class FaceAnalyzer:
             
         # logger.debug(f"Name \"{name}\" cross midian {cross_zero} times (in {len(values)} frames)")
         # return cross_zero > len(values)*threshold
-        
+
     def update(self, name_lmks):
         for name in self.name_open_value_dict.keys():
             while len(self.name_open_value_dict[name]) >= self.value_window_size:
