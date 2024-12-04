@@ -68,6 +68,7 @@ class Backend():
         self.si.connect_signal("deleteRecord", self.delete_record, True)
         self.si.connect_signal("alterName", self.alter_name, True)
         self.si.connect_signal("addMemberImg", self.add_member_img, True)
+        self.si.connect_signal("mergeMembers", self.merge_members, True)
         
         # create ViedoManager first for video preview
         self.vm = VideoManager()
@@ -601,6 +602,21 @@ class Backend():
         logger.info(f"Alter name in {self.database_name}: {old_name} -> {new_name}")
         
         # refresh member images
+        self.get_all_member_img()
+
+    def merge_members(self, members):
+        if members is None:
+            return
+        if len(members) < 2:
+            return
+        if self.fdm is None:
+            self.raise_error("Please select a database.")
+            return
+        
+        new_name = members[0]
+        for i in range(len(members)-1):
+            logging.info(f"renaming {members[i+1]} to {new_name}")
+            self.fdm.rename_face(members[i+1], new_name)
         self.get_all_member_img()
 
     def get_params(self):

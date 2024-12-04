@@ -140,6 +140,7 @@ class MainWindow(QtWidgets.QWidget):
         self.member_detail_window = None
         self.record_menu = None
         self.process_running = False
+        self.is_merging = False
         
         # start receiving loop
         threading.Thread(target=self.receiving_loop).start()
@@ -236,7 +237,7 @@ class MainWindow(QtWidgets.QWidget):
         self.db_scroll_widget.hide()
         
         self.merge_button = new_button("合併人員")
-        #self.merge_button.clicked.connect()
+        self.merge_button.clicked.connect(self.start_member_merging)
         
         db_layout.addWidget(self.select_database_button)
         db_layout.addWidget(self.db_scroll_area)
@@ -315,6 +316,47 @@ class MainWindow(QtWidgets.QWidget):
         logger.info(f"New member {name} added")
         self.update_database_widget()
 
+    def start_member_merging(self):
+        if self.member_name_imgs is None or len(self.member_name_imgs) == 0:
+            return
+        if self.is_merging:
+            self.is_merging = False
+            self.merge_button.setText("合併人員")
+            # 收集選擇的人員
+            selected = []
+            for i in range(self.db_grid_layout.count()):
+                label = self.db_grid_layout.itemAt(i).widget()
+                # check
+                if not isinstance(label, SelectabgleLabel):
+                    break
+                if label.is_selected():
+                    selected.append(label.toolTip())
+            logger.debug(f"Selected members: {selected}")
+            if len(selected) < 2:
+                self.update_database_widget()
+                return
+            # 送出
+            self.si.send_signal("mergeMembers")
+            self.si.send_data(selected)
+        else:
+            self.is_merging = True
+            self.merge_button.setText("確認合併")
+        self.update_database_widget()
+
+    def set_label_selected(self, label):
+        if label is None:
+            return
+        if not isinstance(label, SelectabgleLabel):
+            return
+        
+        if label.is_selected():
+            # orange
+            logger.debug(f"Set {label.toolTip()} orange(selected)")
+            label.setStyleSheet("border :4px solid #ff8c00")
+        else:
+            logger.debug(f"Set {label.toolTip()} blue(not selected)")
+            label.setStyleSheet("border :4px solid #607cff")
+        
     def update_database_widget(self):
         cols = (self.db_scroll_area.size().width()-25)//120 #減掉拉桿25px，至少有 20px 的留空 (左右各10px)
         for _ in range(self.db_grid_layout.count()):
@@ -322,13 +364,16 @@ class MainWindow(QtWidgets.QWidget):
         i_row = 0
         i_col = 0
         for name, imgs in self.member_name_imgs.items():
-            member_img = QtWidgets.QLabel()
+            member_img = SelectabgleLabel()
             member_img.setObjectName('member_img')
             member_img.setPixmap(imgs[0].scaled(100, 100, QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding))
             member_img.setStyleSheet("#member_img {border :4px solid #607cff;}")
             member_img.setFixedSize(100, 100)
             member_img.setToolTip(name)
-            member_img.mousePressEvent = lambda event, name=name: self.pop_member_detail_window(name)
+            if self.is_merging:
+                member_img.set_select_function(lambda member_img=member_img: self.set_label_selected(member_img))
+            else:
+                member_img.set_select_function(lambda name=name: self.pop_member_detail_window(name))
             self.db_grid_layout.addWidget(member_img, i_row, i_col)
             i_col += 1
             if i_col == cols:

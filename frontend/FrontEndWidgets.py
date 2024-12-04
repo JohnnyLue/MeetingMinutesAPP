@@ -93,6 +93,25 @@ class FileDropArea(QtWidgets.QWidget):
         if event.button() == QtCore.Qt.LeftButton:
             self.parent().open_select_video_dialog()
 
+class SelectabgleLabel(QtWidgets.QLabel):
+    def __init__(self, parent=None, selectFunction=None):
+        super().__init__(parent)
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.setFont(MyFont())
+        self.selectFunction = selectFunction
+        self.selected = False
+    
+    def is_selected(self):
+        return self.selected
+    
+    def set_select_function(self, selectFunction):
+        self.selectFunction = selectFunction
+    
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.selected = not self.selected
+            self.selectFunction()
+
 class VideoPlayer(QtWidgets.QLabel):
     def __init__(self, parent=None, video_path=None):
         super().__init__(parent)

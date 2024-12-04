@@ -252,17 +252,20 @@ class FaceDatabaseManager:
                 
             shutil.rmtree(os.path.join(self.database_root, old_name))
             logger.debug(f'Delete {old_name}')
-            folder_path = os.path.join(self.database_root, new_name)
-            embaddings_path = os.path.join(folder_path, 'embeddings.npy')
-            stack = self.face_recognizer.generate_embeddings_from_folder(folder_path)
-            if stack is None:
-                logger.warning(f'Failed to generate embeddings for {new_name}')
-                return
+            if self.face_recognizer is not None:
+                folder_path = os.path.join(self.database_root, new_name)
+                embaddings_path = os.path.join(folder_path, 'embeddings.npy')
+                stack = self.face_recognizer.generate_embeddings_from_folder(folder_path)
+                if stack is None:
+                    logger.warning(f'Failed to generate embeddings for {new_name}')
+                    return
+                else:
+                    np.save(embaddings_path, stack)
+                    self.name_embeddings_dict[new_name] = stack
+                    self.name_embeddings_dict.pop(old_name)
+                    logger.debug(f'Generate embeddings for "{new_name}"')
             else:
-                np.save(embaddings_path, stack)
-                self.name_embeddings_dict[new_name] = stack
-                self.name_embeddings_dict.pop(old_name)
-                logger.debug(f'Generate embeddings for "{new_name}"')
+                logger.warning('FaceRecognizer is not set, changes will not be reflected in embeddings')
         else:
             os.rename(os.path.join(self.database_root, old_name), os.path.join(self.database_root, new_name))
             logger.info(f'{old_name} renamed to {new_name}')
