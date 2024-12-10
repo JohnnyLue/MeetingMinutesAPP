@@ -591,7 +591,7 @@ class MainWindow(QtWidgets.QWidget):
 
     def received_record_content(self, record_content):
         # [[face_pos] [name] [status]] index by frame_idx
-        logger.info(f"Receive record content: {record_content}")
+        logger.debug("Receive record content")
         self.record_content = record_content
         self.video_preview.set_record_content(record_content)
 

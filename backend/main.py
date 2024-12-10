@@ -176,7 +176,7 @@ class Backend():
         
         if not test:
             # info
-            self.record.set_info(None, time.strftime(r"%Y_%m_%d_%H_%M_%S"), self.vm.get_video_path(), self.database_name)
+            self.record.set_info(None, time.strftime(r"%Y_%m_%d_%H_%M_%S"), self.vm.get_video_path(), self.vm.fps, self.database_name)
             # parameters
             for key, _ in default_params.items():
                 self.record.set_parameter(key, self.params[key])
@@ -389,18 +389,18 @@ class Backend():
         logger.debug("Get record content")
         self.si.send_signal("updateRecordContent")
         self.si.send_data(self.record.get_data())
-        logger.debug(self.record.get_data())
 
     def get_script(self):
         if self.record is None:
             self.raise_error("Please select a record.")
             return
         logger.debug("Request script")
-        if self.record.get_script() is None:
+        script = self.record.get_script()
+        if script is None:
             self.raise_error("No script in this record.")
             return
         self.si.send_signal("updateScript")
-        self.si.send_data(self.record.get_script())
+        self.si.send_data(script)
 
     def set_video_path(self, video_path: str):
         logger.info(f"Set video path:\n\"{video_path}\"")

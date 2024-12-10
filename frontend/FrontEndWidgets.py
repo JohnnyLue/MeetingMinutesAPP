@@ -143,11 +143,12 @@ class VideoPlayer(QtWidgets.QLabel):
         self.update(cv2_to_pixmap(self.cap.read()[1]))
         self.audio = MediaPlayer(path, ff_opts={'vn': 1, 'sn': 1, 'paused': 1, 'sync': 'audio'})
         
-        logger.debug(f'''Video loaded:
+        logger.info(f'''Video loaded:
 fps:{int(self.cap.get(cv2.CAP_PROP_FPS))}
 frame count:{int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))}
 video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}''')
         
+        self.total_frame = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
         self.total_time = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)/self.cap.get(cv2.CAP_PROP_FPS)
         self.video_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.video_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -180,6 +181,9 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         logger.debug(f'pause: {self.is_paused}')
         self.lock_read = False
     
+    def cur_frame_pos(self):
+        return str(int(min(self.total_frame, max( 1, self.cap.get(cv2.CAP_PROP_POS_FRAMES)))))
+    
     def forward(self, seconds):
         if self.quit_loop:
             return
@@ -209,7 +213,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.is_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.total_frame-1)
             ret, frame = self.cap.read()
             if not ret:
                 logger.error('Read frame failed.')
@@ -218,6 +222,20 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.update(pFrame)
             return
         
+        if self.record_content is not None:
+            content = self.record_content[self.cur_frame_pos()]
+            if content is not None:
+                bboxes = content['bbox']
+                names = content['names']
+                statuses = content['statuses']
+                assert len(bboxes) == len(names) == len(statuses)
+                for i in range(len(bboxes)):
+                    bbox = bboxes[i]
+                    name = names[i]
+                    status = statuses[i]
+                    cv2.rectangle(frame, (int(bbox[0]*self.video_width), int(bbox[1]*self.video_height)), (int(bbox[2]*self.video_width), int(bbox[3]*self.video_height)), (0, 255, 0) if status else (255, 0, 0), 4)
+                    frame = PutText(frame, name, (bbox[0]*self.video_width, bbox[1]*self.video_height-10), fontColor=(0, 255, 0), fontScale=40, anchor='ls')
+
         pFrame = cv2_to_pixmap(frame)
         self.update(pFrame)
         
@@ -252,11 +270,10 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         
         ret, frame = self.cap.read()
         if not ret:
-            logger.debug('End of video')
             self.is_paused = True
             self.audio.set_pause(1)
-            # update the last frame of the video
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
+            # update the first frame of the video
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
             ret, frame = self.cap.read()
             if not ret:
                 logger.error('Read frame failed.')
@@ -265,6 +282,20 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.update(pFrame)
             return
         
+        if self.record_content is not None:
+            content = self.record_content[self.cur_frame_pos()]
+            if content is not None:
+                bboxes = content['bbox']
+                names = content['names']
+                statuses = content['statuses']
+                assert len(bboxes) == len(names) == len(statuses)
+                for i in range(len(bboxes)):
+                    bbox = bboxes[i]
+                    name = names[i]
+                    status = statuses[i]
+                    cv2.rectangle(frame, (int(bbox[0]*self.video_width), int(bbox[1]*self.video_height)), (int(bbox[2]*self.video_width), int(bbox[3]*self.video_height)), (0, 255, 0) if status else (255, 0, 0), 4)
+                    frame = PutText(frame, name, (bbox[0]*self.video_width, bbox[1]*self.video_height-10), fontColor=(0, 255, 0), fontScale=40, anchor='ls')
+                        
         pFrame = cv2_to_pixmap(frame)
         self.update(pFrame)
         
@@ -282,7 +313,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
         if new_time < 0:
             new_time = 0
         elif new_time > self.get_total_time_s():
-            new_time = self.get_total_time_s()
+            new_time = self.get_total_time_s() - 3
             
         ori_state = self.is_paused
         self.is_paused = True
@@ -300,7 +331,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             self.is_paused = True
             self.audio.set_pause(1)
             # update the last frame of the video
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cap.get(cv2.CAP_PROP_FRAME_COUNT)-1)
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_pos()-1)
             ret, frame = self.cap.read()
             if not ret:
                 logger.error('Read frame failed.')
@@ -308,6 +339,20 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
             pFrame = cv2_to_pixmap(frame)
             self.update(pFrame)
             return
+
+        if self.record_content is not None:
+            content = self.record_content[self.cur_frame_pos()]
+            if content is not None:
+                bboxes = content['bbox']
+                names = content['names']
+                statuses = content['statuses']
+                assert len(bboxes) == len(names) == len(statuses)
+                for i in range(len(bboxes)):
+                    bbox = bboxes[i]
+                    name = names[i]
+                    status = statuses[i]
+                    cv2.rectangle(frame, (int(bbox[0]*self.video_width), int(bbox[1]*self.video_height)), (int(bbox[2]*self.video_width), int(bbox[3]*self.video_height)), (0, 255, 0) if status else (255, 0, 0), 4)
+                    frame = PutText(frame, name, (bbox[0]*self.video_width, bbox[1]*self.video_height-10), fontColor=(0, 255, 0), fontScale=40, anchor='ls')
         
         pFrame = cv2_to_pixmap(frame)
         self.update(pFrame)
@@ -347,7 +392,7 @@ video size:{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.C
                         self.is_paused = True
                         continue
                     if self.record_content is not None:
-                        content = self.record_content[str(int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)))]
+                        content = self.record_content[str(int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1)]
                         if content is not None:
                             bboxes = content['bbox']
                             names = content['names']
@@ -478,7 +523,6 @@ class VideoTimeSlider(QtWidgets.QSlider):
     def mouseMoveEvent(self, event):
         x = event.pos().x()
         value = self.maximum() * x / self.width()
-        logger.debug(f'value: {value}')
         self.setValue(value)
         self.video_player.set_time(value)
         
@@ -765,7 +809,6 @@ class VideoMenu(QtWidgets.QDialog):
         i_row = 0
         i_col = 0
         rols = self.video_scroll_area.size().width()//(self.vid_width+10)
-        logger.debug(f'rols: {rols}')
         for video in videos:
             video_cap = cv2.VideoCapture(video)
             if not video_cap.isOpened():
@@ -1064,9 +1107,9 @@ class SubtitleArea(QtWidgets.QWidget):
         self.search_layout = QtWidgets.QHBoxLayout()
         self.search_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         self.search_input = QtWidgets.QLineEdit()
-        self.search_input.textChanged.connect(lambda: self.find_subtitle(self.search_input.text()))
+        self.search_input.textChanged.connect(lambda: self.find_subtitle_or_name(self.search_input.text()))
         self.search_input.returnPressed.connect(self.find_next)
-        self.search_input.setPlaceholderText("搜尋")
+        self.search_input.setPlaceholderText("搜尋字幕,輸入:r 搜尋人名")
         self.search_input.setFont(MyFont())
         self.search_input.setFixedWidth(200)
         self.search_next_btn = new_button("下一個")
@@ -1088,23 +1131,31 @@ class SubtitleArea(QtWidgets.QWidget):
         for _ in range(self.subtitle_vbox_layout.count()):
             self.subtitle_vbox_layout.takeAt(0).widget().deleteLater()
 
+        hour_needs = False
+        for _time in self.time_subtitle.keys():
+            if _time >= 3600:
+                hour_needs = True
+                break
         total_height = 0
-        for _time, subtitle in self.time_subtitle.items():
-            time_str = time.strftime("%H:%M:%S", time.gmtime(float(_time)))
-            subtitle_item = SubtitleItem(float(_time), time_str, subtitle, self)
+        for _time, subtitle_speaker in self.time_subtitle.items():
+            subtitle, speaker = subtitle_speaker
+            if hour_needs:
+                time_str = time.strftime("%H:%M:%S", time.gmtime(float(_time)))
+            else:
+                time_str = time.strftime("%M:%S", time.gmtime(float(_time)))
+            subtitle_item = SubtitleItem(float(_time), time_str, speaker, subtitle, self)
             self.subtitle_vbox_layout.addWidget(subtitle_item)
-            logger.debug(f'subtitle height:{subtitle_item.sizeHint().height()}')
             total_height += subtitle_item.sizeHint().height() + 20
         self.subtitle_scroll_widget.resize(QtCore.QSize(360, total_height+50))
-        
+       
     def set_subtitle_data(self, subtitle_data):
         self.time_subtitle = {} # clear data
         for d in subtitle_data:
             start_time = d['start']
             subtitle = d['text']
+            speaker = d['speaker']
             
-            self.time_subtitle[start_time] = subtitle
-            logger.debug(f'add subtitle: {d}')
+            self.time_subtitle[start_time] = (subtitle, speaker)
         self.update()
     
     def connect_video_player(self, video_player):
@@ -1112,26 +1163,27 @@ class SubtitleArea(QtWidgets.QWidget):
         # start auto update
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.audo_update)
-        self.timer.start(500)
+        self.timer.start(300)
     
     def audo_update(self):
         if self.video_player is None:
             return
         if self.video_player.is_paused:
             return
-        cur_time = self.video_player.get_time() # time in ms
+        cur_time = self.video_player.get_time() # time in miliseconds
         if cur_time == -1:
             return
         # unfocus all other subtitle
         for i in range(self.subtitle_vbox_layout.count()):
             self.subtitle_vbox_layout.itemAt(i).widget().focusOutEvent(None)
-        counter = 0
-        for _time, subtitle in self.time_subtitle.items():
-            if cur_time >= _time:
+        counter = -1
+        for _time, subtitle_speaker in self.time_subtitle.items():
+            if cur_time > _time:
                 counter += 1
-            else:
-                self.cur_id = counter - 1
-                break
+        self.cur_id = counter
+        
+        if self.cur_id >= self.subtitle_vbox_layout.count() or self.cur_id < 0:
+            return
         # scroll to the subtitle
         self.subtitle_scroll_area.ensureWidgetVisible( self.subtitle_vbox_layout.itemAt(self.cur_id).widget() )
         # highlight the subtitle
@@ -1140,18 +1192,26 @@ class SubtitleArea(QtWidgets.QWidget):
     def subtitle_pressed(self, time_s, subtitle):
         if self.video_player is None:
             return
-        logger.debug(f'click subtitle: {time_s} {subtitle}')
         self.video_player.set_time(time_s)
 
-    def find_subtitle(self, str_search):
+    def find_subtitle_or_name(self, str_search):
         if str_search == '':
             self.search_result = []
             return
+        find_name = False
+        str_search = str_search.strip()
+        if len(str_search) > 2 and str_search[:2] == ":r":
+            find_name = True
         result = []
         counter = 0
-        for time_s, subtitle in self.time_subtitle.items():
-            if str_search in subtitle:
-                result.append(counter) # store the index
+        for time_s, subtitle_speaker in self.time_subtitle.items():
+            subtitle, speaker = subtitle_speaker
+            if find_name:
+                if str_search[2:].strip() in speaker:
+                    result.append(counter)
+            else:
+                if str_search in subtitle:
+                    result.append(counter) # store the index
             counter += 1
         self.search_result = result
         self.find_next()
@@ -1182,12 +1242,13 @@ class SubtitleArea(QtWidgets.QWidget):
             self.video_player.set_time(list(self.time_subtitle.keys())[near_next])
 
 class SubtitleItem(QtWidgets.QWidget):
-    def __init__(self, time_s, time, subtitle, panel, parent=None):
+    def __init__(self, time_s, time, speaker, subtitle, panel, parent=None):
         super().__init__(parent)
         self.setFixedWidth(360)
         self.setMinimumHeight(50)
         self.time_s = time_s
         self.time = time
+        self.speaker = speaker
         self.subtitle = subtitle
         self.panel = panel
         self.ui()
@@ -1200,6 +1261,10 @@ class SubtitleItem(QtWidgets.QWidget):
         self.time_label = QtWidgets.QLabel(f'{self.time}: ', self)
         self.time_label.setFont(MyFont())
         layout.addWidget(self.time_label)
+        
+        self.speaker_label = QtWidgets.QLabel(f'{self.speaker}: ', self)
+        self.speaker_label.setFont(MyFont())
+        layout.addWidget(self.speaker_label)
         
         self.subtitle_label = QtWidgets.QLabel(self.subtitle, self)
         self.subtitle_label.setFont(MyFont())

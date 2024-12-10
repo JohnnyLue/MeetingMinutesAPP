@@ -74,7 +74,7 @@ class Record:
         return self.parameters[key]
     
     def get_info(self):
-        if "record_name" not in self.info or "create_time" not in self.info or "video_path" not in self.info or "database_name" not in self.info:
+        if "record_name" not in self.info or "create_time" not in self.info or "video_path" not in self.info or "fps" not in self.info or "database_name" not in self.info:
             return None
         return self.info
     
@@ -83,8 +83,51 @@ class Record:
             logger.warning("No script in record")
             return None
         logger.debug("Get script from record")
-        logger.debug(self.script)
-        return self.script
+
+        return self.get_script_with_speaker()
+
+    def get_script_with_speaker(self):
+        if len(self.script) == 0:
+            logger.warning("No script in record")
+            return None
+        if len(self.data) == 0:
+            logger.warning("No data in record")
+            return None
+        logger.debug("Get script and speaker info from record")
+
+        script_with_speaker = []
+        fps = self.info["fps"]
+        for i in range(len(self.script)):
+            item = self.script[i]
+            start_frame = int(item["start"] * fps)
+            # search around start_frame
+            speaking_counter = {}
+            search_frame = start_frame - fps
+            for j in range(fps*2):
+                index = str(search_frame + j)
+                if index in self.data:
+                    names = self.data[index]["names"]
+                    statuses = self.data[index]["statuses"]
+                    logger.debug(f"Frame {search_frame + j}, names: {names}, statuses: {statuses}")
+                    assert len(names) == len(statuses)
+                    for k in range(len(names)):
+                        if statuses[k]:
+                            if names[k] not in speaking_counter:
+                                speaking_counter[names[k]] = 1
+                            speaking_counter[names[k]] += 1
+            if len(speaking_counter) == 0:
+                speaker = ""
+            else:
+                max_time = max(speaking_counter.values())
+                speaker = ""
+                for name in speaking_counter:
+                    if speaking_counter[name] == max_time:
+                        speaker = name
+                        break
+            logger.debug(f"Speaker: {speaker}, at frame {start_frame}")
+            script_with_speaker.append({"start": item["start"], "end": item["end"], "text": item["text"], "speaker": speaker})
+
+        return script_with_speaker
     
     def get_data(self):
         if len(self.data) == 0:
@@ -92,8 +135,8 @@ class Record:
             return None
         return self.data
     
-    def set_info(self, record_name, create_time, video_path, database_name):
-        if not isinstance(create_time, str) or not isinstance(video_path, str) or not isinstance(database_name, str):
+    def set_info(self, record_name, create_time, video_path, fps, database_name):
+        if not isinstance(create_time, str) or not isinstance(video_path, str) or not isinstance(fps, int) or not isinstance(database_name, str):
             logger.error("Invalid info")
             return
         if record_name is None:
@@ -102,9 +145,9 @@ class Record:
         if not isinstance(record_name, str):
             logger.error("Invalid record name")
             return
-        self.info = {"record_name": record_name, "create_time": create_time, "video_path": video_path, "database_name": database_name}
+        self.info = {"record_name": record_name, "create_time": create_time, "video_path": video_path, "fps": fps, "database_name": database_name}
         self.file_path = os.path.join(self.base_dir, record_name + ".json")
-        logger.debug(f"Set info: record_name = {record_name}, video_path = {video_path}, database_name = {database_name}")
+        logger.debug(f"Set info: record_name = {record_name}, video_path = {video_path}, fps = {fps}, database_name = {database_name}")
     
     def write_data(self, frame_idx, bboxes, names, statuses):
         self.data[frame_idx] = {"bbox": bboxes, "names": names, "statuses": statuses}
