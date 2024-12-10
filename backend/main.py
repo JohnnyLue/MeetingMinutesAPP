@@ -697,6 +697,7 @@ class Backend():
     def terminateProcess(self):
         self.running = False
         
+        
         time.sleep(1)
         if self.run_thread is not None:
             self.run_thread.join()

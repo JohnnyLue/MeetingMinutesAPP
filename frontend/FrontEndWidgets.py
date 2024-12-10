@@ -1042,6 +1042,8 @@ class SubtitleArea(QtWidgets.QWidget):
         self.setFixedWidth(400)
         self.video_player = None
         self.time_subtitle = {}
+        self.search_result = []
+        self.cur_id = 0
         self.ui()
         
     def ui(self):
@@ -1058,13 +1060,34 @@ class SubtitleArea(QtWidgets.QWidget):
         self.subtitle_scroll_widget.setLayout(self.subtitle_vbox_layout)
         self.subtitle_scroll_area.setWidget(self.subtitle_scroll_widget)
         layout.addWidget(self.subtitle_scroll_area)
+
+        self.search_layout = QtWidgets.QHBoxLayout()
+        self.search_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.search_input = QtWidgets.QLineEdit()
+        self.search_input.textChanged.connect(lambda: self.find_subtitle(self.search_input.text()))
+        self.search_input.returnPressed.connect(self.find_next)
+        self.search_input.setPlaceholderText("搜尋")
+        self.search_input.setFont(MyFont())
+        self.search_input.setFixedWidth(200)
+        self.search_next_btn = new_button("下一個")
+        self.search_next_btn.setFixedWidth(80)
+        self.search_next_btn.clicked.connect(self.find_next)
+        self.search_next_btn.setFont(MyFont())
+        self.search_prev_btn = new_button("上一個")
+        self.search_prev_btn.setFixedWidth(80)
+        self.search_prev_btn.clicked.connect(self.find_prev)
+        self.search_prev_btn.setFont(MyFont())
+        self.search_layout.addWidget(self.search_input)
+        self.search_layout.addWidget(self.search_next_btn)
+        self.search_layout.addWidget(self.search_prev_btn)
+        layout.addLayout(self.search_layout)
         
         self.setLayout(layout)
         
     def update(self):
         for _ in range(self.subtitle_vbox_layout.count()):
             self.subtitle_vbox_layout.takeAt(0).widget().deleteLater()
-            
+
         total_height = 0
         for _time, subtitle in self.time_subtitle.items():
             time_str = time.strftime("%H:%M:%S", time.gmtime(float(_time)))
@@ -1086,13 +1109,77 @@ class SubtitleArea(QtWidgets.QWidget):
     
     def connect_video_player(self, video_player):
         self.video_player = video_player
+        # start auto update
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.audo_update)
+        self.timer.start(500)
+    
+    def audo_update(self):
+        if self.video_player is None:
+            return
+        if self.video_player.is_paused:
+            return
+        cur_time = self.video_player.get_time() # time in ms
+        if cur_time == -1:
+            return
+        # unfocus all other subtitle
+        for i in range(self.subtitle_vbox_layout.count()):
+            self.subtitle_vbox_layout.itemAt(i).widget().focusOutEvent(None)
+        counter = 0
+        for _time, subtitle in self.time_subtitle.items():
+            if cur_time >= _time:
+                counter += 1
+            else:
+                self.cur_id = counter - 1
+                break
+        # scroll to the subtitle
+        self.subtitle_scroll_area.ensureWidgetVisible( self.subtitle_vbox_layout.itemAt(self.cur_id).widget() )
+        # highlight the subtitle
+        self.subtitle_vbox_layout.itemAt(self.cur_id).widget().focusInEvent(None)
         
     def subtitle_pressed(self, time_s, subtitle):
-        pass
-        #if self.video_player is None:
-        #    return
+        if self.video_player is None:
+            return
         logger.debug(f'click subtitle: {time_s} {subtitle}')
         self.video_player.set_time(time_s)
+
+    def find_subtitle(self, str_search):
+        if str_search == '':
+            self.search_result = []
+            return
+        result = []
+        counter = 0
+        for time_s, subtitle in self.time_subtitle.items():
+            if str_search in subtitle:
+                result.append(counter) # store the index
+            counter += 1
+        self.search_result = result
+        self.find_next()
+
+    def find_prev(self):
+        if len(self.search_result) == 0:
+            return
+        near_prev = 0
+        for i in self.search_result:
+            if i < self.cur_id:
+                near_prev = i
+        if near_prev == 0:
+            near_prev = self.search_result[-1]
+        if self.video_player is not None:
+            self.video_player.set_time(list(self.time_subtitle.keys())[near_prev])
+
+    def find_next(self):
+        if len(self.search_result) == 0:
+            return
+        near_next = 0
+        for i in self.search_result:
+            if i > self.cur_id:
+                near_next = i
+                break
+        if near_next == 0:
+            near_next = self.search_result[0]
+        if self.video_player is not None:
+            self.video_player.set_time(list(self.time_subtitle.keys())[near_next])
 
 class SubtitleItem(QtWidgets.QWidget):
     def __init__(self, time_s, time, subtitle, panel, parent=None):
@@ -1121,13 +1208,18 @@ class SubtitleItem(QtWidgets.QWidget):
         
         self.setLayout(layout)
         
+    def focusInEvent(self, event):
+        self.setAutoFillBackground(True)
+        self.setPalette(QtGui.QPalette(QtGui.QColor(96, 124, 255)))
+        
+    def focusOutEvent(self, event):
+        self.setAutoFillBackground(False)
+    
     def enterEvent(self, event):
-        logger.debug('hover')
         self.setAutoFillBackground(True)
         self.setPalette(QtGui.QPalette(QtGui.QColor(96, 124, 255))) # #607cff
         
     def leaveEvent(self, event):
-        logger.debug('leave')
         self.setAutoFillBackground(False)
         
     def mousePressEvent(self, event):

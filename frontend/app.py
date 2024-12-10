@@ -15,8 +15,8 @@ logger = logging.getLogger()
 logger.handlers.clear()
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter(
-	'[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
-	'%H:%M:%S')
+    '[%(levelname)-7s %(asctime)s] %(name)s:%(module)s:%(funcName)s:%(lineno)d: %(message)s',
+    '%H:%M:%S')
 fileLogger = logging.FileHandler('log.txt', mode='w')
 fileLogger.setLevel(logging.DEBUG)
 fileLogger.setFormatter(formatter)
