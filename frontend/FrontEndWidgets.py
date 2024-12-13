@@ -1378,11 +1378,9 @@ class RecordMenuItem(QtWidgets.QWidget):
         info_layout2 = QtWidgets.QVBoxLayout()
         info_layout2.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         
-        video_path_label = QtWidgets.QLabel(f'檔案路徑: {self.video_path}', self)
-        video_path_label.setWordWrap(True)
+        video_path_label = QtWidgets.QLabel(f'檔案名: {os.path.basename(self.video_path)}', self)
         video_path_label.setFont(MyFont())
         database_name_label = QtWidgets.QLabel(f'資料庫: {self.database_name}', self)
-        database_name_label.setWordWrap(True)
         database_name_label.setFont(MyFont())
         info_layout2.addWidget(video_path_label)
         info_layout2.addWidget(database_name_label)
