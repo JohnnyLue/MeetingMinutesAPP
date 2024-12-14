@@ -196,35 +196,3 @@ class SocketInterface():
         
     def __del__(self):
         self.close()
-
-class a:
-    def __init__(self):
-        self.si = SocketInterface()
-        self.si.imClient()
-        self.si.connect_signal("test", self.test_func, True)
-        
-    def test_func(self, a_b):
-        a, b = a_b
-        print(a)
-        print(b)
- 
-    def receive(self):
-        type, data = self.si.receive()
-        logger.info(f"Receive type: {type}, data: {data}")
- 
-if __name__ == "__main__":
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("--isServer", action="store_true")
-    args = argparser.parse_args()
-    logging.basicConfig(level=logging.DEBUG)
-    
-    if args.isServer:
-        si = SocketInterface()
-        si.imServer()
-        logger.info("Server started")
-        si.send_signal("test")
-        si.send_data((1, None))
-    else:
-        obj = a()
-        obj.receive()
-        
